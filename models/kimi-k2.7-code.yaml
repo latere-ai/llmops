@@ -1,0 +1,18 @@
+# Kimi-K2.7-Code — specs/004. 1T MoE, 32B active, native INT4 QAT.
+name: kimi-k2.7-code
+hf_repo: moonshotai/Kimi-K2.7-Code
+revision: 74797c9c62378b951a1f6fcf5c4631024e9b8bef
+s3_prefix: s3://latere-models/moonshotai/Kimi-K2.7-Code/74797c9c62378b951a1f6fcf5c4631024e9b8bef/
+format: int4-qat
+license: modified-mit
+license_note: >-
+  MIT plus attribution clause for very large-scale commercial
+  deployments; re-read LICENSE in the HF repo before production.
+runtime: sglang
+load: nvme-cache
+gpu: { type: h200, count: 8, nodes: 1 }
+context_max: 262144
+args:
+  - --tp-size=8
+  - --tool-call-parser=kimi_k2
+  - --reasoning-parser=kimi_k2

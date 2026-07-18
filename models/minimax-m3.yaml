@@ -1,0 +1,26 @@
+# MiniMax-M3 — specs/006. 428B MoE, 23B active, MXFP8, multimodal-in.
+# --block-size=128 is mandatory on every platform (MSA sparse attention);
+# manifest validation enforces it for this hf_repo.
+#
+# LICENSE GATE (specs/006 AC0): MiniMax Community License — send the
+# one-time commercial-use notice to api@minimax.io and record the
+# evidence here before exposing through Lux.
+name: minimax-m3
+hf_repo: MiniMaxAI/MiniMax-M3-MXFP8
+revision: c5454eb03678d8710e54a4e0fc681b9f3b4a3dba
+s3_prefix: s3://latere-models/MiniMaxAI/MiniMax-M3-MXFP8/c5454eb03678d8710e54a4e0fc681b9f3b4a3dba/
+format: mxfp8
+license: minimax-community
+license_note: >-
+  Commercial use under $20M annual revenue requires one-time notice to
+  api@minimax.io and "Built with MiniMax M3" display. Notice NOT yet
+  sent — blocking gate for Lux exposure.
+runtime: sglang
+load: nvme-cache
+gpu: { type: h200, count: 8, nodes: 1 }
+context_max: 1048576
+args:
+  - --tp-size=8
+  - --block-size=128
+  - --tool-call-parser=minimax_m3
+  - --reasoning-parser=minimax_m3

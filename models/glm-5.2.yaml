@@ -1,0 +1,17 @@
+# GLM-5.2 — specs/005. 753B MoE, ~40B active, FP8 serving checkpoint.
+# fp8_e5m2 KV cache is what makes 1M context viable on 8x H200
+# (vendor recipe); drop context_max if the KV dtype changes.
+name: glm-5.2
+hf_repo: zai-org/GLM-5.2-FP8
+revision: ba978f7d347eaf65d22f1a86833408afdb953541
+s3_prefix: s3://latere-models/zai-org/GLM-5.2-FP8/ba978f7d347eaf65d22f1a86833408afdb953541/
+format: fp8
+license: mit
+runtime: sglang
+load: nvme-cache
+gpu: { type: h200, count: 8, nodes: 1 }
+context_max: 1048576
+args:
+  - --tp-size=8
+  - --ep-size=8
+  - --kv-cache-dtype=fp8_e5m2

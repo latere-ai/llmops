@@ -1,0 +1,15 @@
+# DeepSeek-V4-Pro — specs/007. 1.6T MoE, 49B active, FP4 experts + FP8.
+# Shape: 8x B200 single node (native FP4 path, specs/007 preference #1).
+# Does NOT fit 8x H100; hardware decision recorded in specs/007 AC1.
+name: deepseek-v4-pro
+hf_repo: deepseek-ai/DeepSeek-V4-Pro
+revision: b5968e9190ef611bbf34a7229255be88a0e937c1
+s3_prefix: s3://latere-models/deepseek-ai/DeepSeek-V4-Pro/b5968e9190ef611bbf34a7229255be88a0e937c1/
+format: fp4-fp8
+license: mit
+runtime: sglang
+load: nvme-cache
+gpu: { type: b200, count: 8, nodes: 1 }
+context_max: 1048576
+args:
+  - --tp-size=8
