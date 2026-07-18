@@ -1,0 +1,19 @@
+# Local full-stack e2e model (specs/011). Same schema and validation as
+# production manifests; the engine is substituted at run time via
+# OPENLLMS_ENGINE_CMD (mlx_lm on Apple silicon), which is why runtime
+# still says sglang here.
+name: qwen3-0.6b-local
+hf_repo: Qwen/Qwen3-0.6B
+revision: c1899de289a04d12100db370d81485cdf75e47ca
+s3_prefix: s3://latere-models/Qwen/Qwen3-0.6B/c1899de289a04d12100db370d81485cdf75e47ca/
+format: bf16
+license: apache-2.0
+runtime: sglang
+load: nvme-cache
+gpu: { type: apple-silicon, count: 1, nodes: 1 }
+context_max: 32768
+args:
+  - --tp-size=1
+system_prompt:
+  mode: override
+  text: You are a terse assistant. Keep every answer under one sentence.

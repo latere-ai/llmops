@@ -1,2 +1,4 @@
 coverage.out
 /bin/
+e2e/local/.venv/
+e2e/local/bin/

@@ -17,6 +17,7 @@ number order — the numbering is the implementation order.
 | 008 | [Kubernetes GPU serving](008-k8s-serving.md) | draft | LWS deploys, NVMe prefetch cache, node prereqs |
 | 009 | [Lux integration](009-lux-integration.md) | draft | Models as Lux providers, cost tracking |
 | 010 | [Observability & bench](010-observability-bench.md) | draft | Metrics/dashboards, benchmark harness, router comparison |
+| 011 | [Local full-stack e2e](011-local-e2e.md) | draft | Small model + MinIO + local engine; zero-cost pipeline proof |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest

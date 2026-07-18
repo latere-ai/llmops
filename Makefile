@@ -40,3 +40,8 @@ images:
 
 clean:
 	rm -f coverage.out
+
+# Full local e2e: real small model + MinIO + mlx_lm engine (specs/011).
+# Needs Docker and uv; zero cloud credentials. ~1.5 GB one-time download.
+e2e-local:
+	bash e2e/local/run.sh
