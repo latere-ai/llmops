@@ -1,0 +1,17 @@
+# Mirror image: runs the HF → S3 freeze as a k8s Job (specs/002).
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/mirror ./cmd/mirror
+
+FROM python:3.12-slim
+RUN pip install --no-cache-dir "huggingface_hub[hf_transfer]" \
+    && apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://github.com/peak/s5cmd/releases/download/v2.3.0/s5cmd_2.3.0_Linux-64bit.tar.gz \
+       | tar -xz -C /usr/local/bin s5cmd \
+    && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/mirror /usr/local/bin/mirror
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENTRYPOINT ["mirror"]

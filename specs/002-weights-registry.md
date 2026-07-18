@@ -54,7 +54,11 @@ CLI (Go or Python — decide in impl, prefer Go for parity with sibling repos):
    integrity against the manifest.
 4. `mirror ls` — list mirrored models/revisions.
 
-Runs as a k8s Job (needs bandwidth + scratch disk), also runnable locally.
+Runs as a k8s Job (needs bandwidth + scratch disk), also runnable
+locally. `deploy/mirror/job.yaml` is the parameterized Job
+(`Dockerfile.mirror` image); it blocks on two infra decisions recorded
+there: the dedicated bucket (S3 vs DO Spaces via `S3_ENDPOINT_URL`) and
+the `mirror-s3` credentials Secret.
 
 ## Model manifests (`models/`)
 

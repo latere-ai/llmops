@@ -36,6 +36,7 @@ e2e:
 images:
 	docker build -f Dockerfile.sglang -t ghcr.io/latere-ai/open-llms-runtime-sglang:dev .
 	docker build -f Dockerfile.vllm -t ghcr.io/latere-ai/open-llms-runtime-vllm:dev .
+	docker build -f Dockerfile.mirror -t ghcr.io/latere-ai/open-llms-mirror:dev .
 
 clean:
 	rm -f coverage.out

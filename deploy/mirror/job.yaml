@@ -1,0 +1,55 @@
+# One-shot mirror Job: freezes one HF model revision into the S3 bucket
+# (specs/002). Run in-cluster, near the bucket — never from a laptop.
+#
+# Per-model usage: substitute MODEL_REPO/MODEL_SHA (or kustomize-patch
+# args) and apply. The scratch volume must exceed the model's disk size
+# (up to 1.6 TB for DeepSeek-V4-Pro-Base; see specs/002 size table).
+#
+# Prerequisites (blocking, decided outside this repo):
+#   - the bucket: dedicated `latere-models` (S3 or DO Spaces — s5cmd
+#     honors S3_ENDPOINT_URL for Spaces), Object Lock/versioning on
+#   - Secret `mirror-s3` with AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+#     (+ S3_ENDPOINT_URL for non-AWS endpoints)
+#   - optional Secret key HF_TOKEN for gated HF repos
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mirror-model # override per model, e.g. mirror-kimi-k2-7-code
+  namespace: open-llms
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mirror
+          image: ghcr.io/latere-ai/open-llms-mirror:v0.1.0
+          # push re-verifies the scratch dir against the HF tree, then
+          # uploads and writes _manifest.json last (idempotent; safe to
+          # re-run after interruption).
+          args:
+            - push
+            - $(MODEL_REPO)@$(MODEL_SHA)
+            - --dir=/scratch
+            - --bucket=s3://latere-models
+          env:
+            - name: MODEL_REPO
+              value: moonshotai/Kimi-K2.7-Code
+            - name: MODEL_SHA
+              value: 74797c9c62378b951a1f6fcf5c4631024e9b8bef
+          envFrom:
+            - secretRef: { name: mirror-s3 }
+          resources:
+            requests: { cpu: "4", memory: 8Gi }
+          volumeMounts:
+            - { name: scratch, mountPath: /scratch }
+      volumes:
+        - name: scratch
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 700Gi # >= model size; see specs/002 table
