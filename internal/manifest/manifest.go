@@ -33,21 +33,37 @@ type GPU struct {
 	Nodes int    `yaml:"nodes"`
 }
 
+// SystemPrompt modes.
+const (
+	SystemPromptDefault  = "default"  // used only when the caller sends none
+	SystemPromptPrepend  = "prepend"  // always inserted before the caller's
+	SystemPromptOverride = "override" // replaces whatever the caller sent
+)
+
+// SystemPrompt is an inference-layer-owned system prompt the shim
+// enforces on every request (specs/003). Per-tenant/policy prompts
+// belong in Lux, not here.
+type SystemPrompt struct {
+	Mode string `yaml:"mode"`
+	Text string `yaml:"text"`
+}
+
 // Manifest is one models/<name>.yaml.
 type Manifest struct {
-	Name        string   `yaml:"name"`
-	HFRepo      string   `yaml:"hf_repo"`
-	Revision    string   `yaml:"revision"`
-	S3Prefix    string   `yaml:"s3_prefix"`
-	Format      string   `yaml:"format"`
-	License     string   `yaml:"license"`
-	LicenseNote string   `yaml:"license_note,omitempty"`
-	Runtime     string   `yaml:"runtime"`
-	Image       string   `yaml:"image,omitempty"`
-	Load        string   `yaml:"load"`
-	GPU         GPU      `yaml:"gpu"`
-	ContextMax  int      `yaml:"context_max"`
-	Args        []string `yaml:"args,omitempty"`
+	Name         string        `yaml:"name"`
+	HFRepo       string        `yaml:"hf_repo"`
+	Revision     string        `yaml:"revision"`
+	S3Prefix     string        `yaml:"s3_prefix"`
+	Format       string        `yaml:"format"`
+	License      string        `yaml:"license"`
+	LicenseNote  string        `yaml:"license_note,omitempty"`
+	Runtime      string        `yaml:"runtime"`
+	Image        string        `yaml:"image,omitempty"`
+	Load         string        `yaml:"load"`
+	GPU          GPU           `yaml:"gpu"`
+	ContextMax   int           `yaml:"context_max"`
+	Args         []string      `yaml:"args,omitempty"`
+	SystemPrompt *SystemPrompt `yaml:"system_prompt,omitempty"`
 }
 
 var (
@@ -167,6 +183,16 @@ func (m *Manifest) Validate() error {
 	for _, req := range requiredArgs[m.HFRepo] {
 		if !m.HasArg(req) {
 			fail("hf_repo %s requires arg %s", m.HFRepo, req)
+		}
+	}
+	if sp := m.SystemPrompt; sp != nil {
+		switch sp.Mode {
+		case SystemPromptDefault, SystemPromptPrepend, SystemPromptOverride:
+		default:
+			fail("system_prompt.mode %q must be one of default|prepend|override", sp.Mode)
+		}
+		if strings.TrimSpace(sp.Text) == "" {
+			fail("system_prompt.text must be non-empty")
 		}
 	}
 

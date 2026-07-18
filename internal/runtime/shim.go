@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"latere.ai/x/pkg/llmdialect"
 	"latere.ai/x/pkg/llmdialect/anthropic"
 	"latere.ai/x/pkg/llmdialect/openaichat"
+
+	"github.com/latere-ai/open-llms/internal/manifest"
 )
 
 // Shim fronts the engine with the latere service contract
@@ -29,6 +32,10 @@ type Shim struct {
 	inference   *http.Client // no timeout: long generations
 	translator  *llmdialect.Translator
 	weightsSecs atomic.Value // float64; 0 while loading
+
+	// SystemPrompt, when set, is enforced on every chat request —
+	// both dialect surfaces (specs/003).
+	SystemPrompt *manifest.SystemPrompt
 }
 
 // NewShim fronts the engine at engineURL (e.g. http://127.0.0.1:30000).
@@ -96,9 +103,110 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.metrics(w)
 	case "/anthropic/v1/messages":
 		s.anthropicMessages(w, r)
+	case "/v1/chat/completions":
+		if s.SystemPrompt != nil && r.Method == http.MethodPost {
+			s.chatCompletions(w, r)
+			return
+		}
+		s.proxy.ServeHTTP(w, r)
 	default:
 		s.proxy.ServeHTTP(w, r)
 	}
+}
+
+// chatCompletions intercepts the OpenAI surface only when a system
+// prompt must be enforced; otherwise the transparent proxy handles it.
+func (s *Shim) chatCompletions(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 512<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	injected, err := injectSystemPrompt(body, s.SystemPrompt)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
+		return
+	}
+	s.forward(w, r, "/v1/chat/completions", injected)
+}
+
+// forward posts body to the engine and streams the response back,
+// flushing per chunk so SSE token streams are not buffered.
+func (s *Shim) forward(w http.ResponseWriter, r *http.Request, path string, body []byte) {
+	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		s.engine.String()+path, bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	up.Header.Set("Content-Type", "application/json")
+	resp, err := s.inference.Do(up)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	for _, h := range []string{"Content-Type", "Cache-Control"} {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	var dst io.Writer = w
+	if fl, ok := w.(http.Flusher); ok {
+		dst = flushWriter{w, fl}
+	}
+	io.Copy(dst, resp.Body)
+}
+
+type flushWriter struct {
+	w  io.Writer
+	fl http.Flusher
+}
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	f.fl.Flush()
+	return n, err
+}
+
+// injectSystemPrompt applies the manifest's system-prompt policy to an
+// OpenAI Chat request body (both dialect surfaces funnel through the
+// OpenAI shape before reaching the engine).
+func injectSystemPrompt(body []byte, sp *manifest.SystemPrompt) ([]byte, error) {
+	if sp == nil {
+		return body, nil
+	}
+	var req map[string]any
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+	msgs, _ := req["messages"].([]any)
+	ours := map[string]any{"role": "system", "content": sp.Text}
+
+	hasSystem := false
+	var withoutSystem []any
+	for _, m := range msgs {
+		if mm, ok := m.(map[string]any); ok && mm["role"] == "system" {
+			hasSystem = true
+			continue
+		}
+		withoutSystem = append(withoutSystem, m)
+	}
+
+	switch sp.Mode {
+	case manifest.SystemPromptDefault:
+		if !hasSystem {
+			req["messages"] = append([]any{ours}, msgs...)
+		}
+	case manifest.SystemPromptPrepend:
+		req["messages"] = append([]any{ours}, msgs...)
+	case manifest.SystemPromptOverride:
+		req["messages"] = append([]any{ours}, withoutSystem...)
+	default:
+		return nil, fmt.Errorf("unknown system_prompt mode %q", sp.Mode)
+	}
+	return json.Marshal(req)
 }
 
 // anthropicMessages serves the Anthropic Messages dialect over the
@@ -116,6 +224,10 @@ func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 	out, req, err := s.translator.Request(body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("translate request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if out, err = injectSystemPrompt(out, s.SystemPrompt); err != nil {
+		http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
 		return
 	}
 	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,

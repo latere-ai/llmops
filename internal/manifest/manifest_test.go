@@ -194,3 +194,22 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Fatal("missing file must error")
 	}
 }
+
+func TestValidateSystemPrompt(t *testing.T) {
+	for _, mode := range []string{SystemPromptDefault, SystemPromptPrepend, SystemPromptOverride} {
+		m := valid()
+		m.SystemPrompt = &SystemPrompt{Mode: mode, Text: "be helpful"}
+		if err := m.Validate(); err != nil {
+			t.Fatalf("mode %s rejected: %v", mode, err)
+		}
+	}
+	m := valid()
+	m.SystemPrompt = &SystemPrompt{Mode: "sometimes", Text: "x"}
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "system_prompt.mode") {
+		t.Fatalf("bad mode not rejected: %v", err)
+	}
+	m.SystemPrompt = &SystemPrompt{Mode: SystemPromptDefault, Text: "   "}
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "system_prompt.text") {
+		t.Fatalf("empty text not rejected: %v", err)
+	}
+}

@@ -617,3 +617,166 @@ func TestShimAnthropicMessagesBodyReadError(t *testing.T) {
 		t.Fatalf("body read error status %d", rec.Code)
 	}
 }
+
+// recordingEngine captures the chat request body the engine receives.
+func recordingEngine(t *testing.T, got *[]byte) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		*got = body
+		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func roles(t *testing.T, body []byte) []string {
+	t.Helper()
+	var req map[string]any
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("engine body not json: %v: %s", err, body)
+	}
+	var out []string
+	for _, m := range req["messages"].([]any) {
+		mm := m.(map[string]any)
+		out = append(out, fmt.Sprint(mm["role"], ":", mm["content"]))
+	}
+	return out
+}
+
+func TestSystemPromptInjection(t *testing.T) {
+	const withSystem = `{"model":"tiny","messages":[{"role":"system","content":"caller"},{"role":"user","content":"hi"}]}`
+	const noSystem = `{"model":"tiny","messages":[{"role":"user","content":"hi"}]}`
+	cases := []struct {
+		mode, body string
+		want       []string
+	}{
+		{"default", noSystem, []string{"system:ours", "user:hi"}},
+		{"default", withSystem, []string{"system:caller", "user:hi"}},
+		{"prepend", withSystem, []string{"system:ours", "system:caller", "user:hi"}},
+		{"override", withSystem, []string{"system:ours", "user:hi"}},
+		{"override", noSystem, []string{"system:ours", "user:hi"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode+"/"+tc.body[:20], func(t *testing.T) {
+			var got []byte
+			engine := recordingEngine(t, &got)
+			shim, err := NewShim(engine.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			shim.SystemPrompt = &manifest.SystemPrompt{Mode: tc.mode, Text: "ours"}
+			front := httptest.NewServer(shim)
+			defer front.Close()
+
+			resp, err := http.Post(front.URL+"/v1/chat/completions", "application/json", strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 200 {
+				t.Fatalf("status %d", resp.StatusCode)
+			}
+			gotRoles := roles(t, got)
+			if fmt.Sprint(gotRoles) != fmt.Sprint(tc.want) {
+				t.Fatalf("messages = %v, want %v", gotRoles, tc.want)
+			}
+		})
+	}
+}
+
+func TestSystemPromptInjectionAnthropicPath(t *testing.T) {
+	var got []byte
+	engine := recordingEngine(t, &got)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim.SystemPrompt = &manifest.SystemPrompt{Mode: "override", Text: "ours"}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	body := `{"model":"tiny","max_tokens":8,"system":"caller","messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	gotRoles := roles(t, got)
+	if fmt.Sprint(gotRoles) != "[system:ours user:hi]" {
+		t.Fatalf("messages = %v", gotRoles)
+	}
+}
+
+func TestSystemPromptPassthroughWhenUnset(t *testing.T) {
+	// Without a system prompt the transparent proxy serves the OpenAI
+	// path (covered by TestShimContract); here: injection helper is a
+	// no-op on nil.
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+	out, err := injectSystemPrompt(body, nil)
+	if err != nil || string(out) != string(body) {
+		t.Fatalf("nil prompt must be identity: %s, %v", out, err)
+	}
+}
+
+func TestSystemPromptInjectionErrors(t *testing.T) {
+	sp := &manifest.SystemPrompt{Mode: "override", Text: "x"}
+	if _, err := injectSystemPrompt([]byte("{"), sp); err == nil {
+		t.Fatal("bad json must error")
+	}
+	if _, err := injectSystemPrompt([]byte("{}"), &manifest.SystemPrompt{Mode: "bogus", Text: "x"}); err == nil {
+		t.Fatal("bad mode must error")
+	}
+	// Handler surfaces the 400.
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim.SystemPrompt = sp
+	rec := httptest.NewRecorder()
+	shim.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader("{")))
+	if rec.Code != 400 {
+		t.Fatalf("bad body status %d", rec.Code)
+	}
+	// GET with prompt set still proxies (only POST is intercepted).
+	rec = httptest.NewRecorder()
+	shim.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/chat/completions", nil))
+	if rec.Code == 400 {
+		t.Fatal("GET must not be intercepted")
+	}
+	// Engine down → 502.
+	dead, _ := NewShim("http://127.0.0.1:1")
+	dead.SystemPrompt = sp
+	rec = httptest.NewRecorder()
+	dead.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`)))
+	if rec.Code != 502 {
+		t.Fatalf("dead engine status %d", rec.Code)
+	}
+}
+
+func TestSystemPromptStreamingThroughForward(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim.SystemPrompt = &manifest.SystemPrompt{Mode: "default", Text: "ours"}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	body := `{"model":"tiny","stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(front.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(out), "chat.completion.chunk") || !strings.Contains(string(out), "[DONE]") {
+		t.Fatalf("stream not passed through: %s", out)
+	}
+}

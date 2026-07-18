@@ -80,6 +80,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	if err != nil {
 		return err
 	}
+	shim.SystemPrompt = m.SystemPrompt
 
 	// Expose /healthz (and a not-ready /ready) while weights load.
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", opts.Port))

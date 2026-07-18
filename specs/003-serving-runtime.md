@@ -31,6 +31,22 @@ the inference path (unlike ocrmodel, which adds domain endpoints). The
 runtime is: entrypoint + weight loading + config rendering + health
 surface. Thin by design.
 
+**System prompts.** An optional manifest block
+
+```yaml
+system_prompt:
+  mode: default | prepend | override
+  text: "..."
+```
+
+is enforced by the shim on every chat request, on both dialect surfaces:
+`default` fills in only when the caller sends no system message,
+`prepend` always inserts before the caller's, `override` replaces it.
+This is the inference layer's knob for deployment-wide behavioral
+defaults (and a stable prefix helps RadixAttention cache hit rates);
+per-tenant/policy prompts stay in Lux. Task prompts (ocrmodel-style)
+stay in domain wrappers.
+
 **Dialects.** The engine's OpenAI Chat surface proxies through
 unchanged. The shim additionally serves `POST /anthropic/v1/messages`
 (Anthropic Messages, streaming included) by translating through the
