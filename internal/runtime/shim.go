@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,10 @@ import (
 	"net/url"
 	"sync/atomic"
 	"time"
+
+	"latere.ai/x/pkg/llmdialect"
+	"latere.ai/x/pkg/llmdialect/anthropic"
+	"latere.ai/x/pkg/llmdialect/openaichat"
 )
 
 // Shim fronts the engine with the latere service contract
@@ -20,7 +25,9 @@ import (
 type Shim struct {
 	engine      *url.URL
 	proxy       *httputil.ReverseProxy
-	client      *http.Client
+	client      *http.Client // short-timeout, health/metrics only
+	inference   *http.Client // no timeout: long generations
+	translator  *llmdialect.Translator
 	weightsSecs atomic.Value // float64; 0 while loading
 }
 
@@ -33,9 +40,18 @@ func NewShim(engineURL string) (*Shim, error) {
 	proxy := httputil.NewSingleHostReverseProxy(u)
 	proxy.FlushInterval = -1 // flush every write: token streaming
 	s := &Shim{
-		engine: u,
-		proxy:  proxy,
-		client: &http.Client{Timeout: 5 * time.Second},
+		engine:    u,
+		proxy:     proxy,
+		client:    &http.Client{Timeout: 5 * time.Second},
+		inference: &http.Client{},
+		// Anthropic Messages callers drive the engine's OpenAI Chat
+		// surface through the shared dialect translator (../pkg/llmdialect).
+		// The Lux dialect is deliberately absent: that surface belongs to
+		// the gateway, which embeds the same package (specs/009).
+		translator: &llmdialect.Translator{
+			Frontend: anthropic.NewFrontend(),
+			Backend:  openaichat.NewBackend(openaichat.BackendOptions{}),
+		},
 	}
 	s.weightsSecs.Store(float64(0))
 	return s, nil
@@ -78,9 +94,68 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "loading")
 	case "/metrics":
 		s.metrics(w)
+	case "/anthropic/v1/messages":
+		s.anthropicMessages(w, r)
 	default:
 		s.proxy.ServeHTTP(w, r)
 	}
+}
+
+// anthropicMessages serves the Anthropic Messages dialect over the
+// engine's OpenAI Chat endpoint, streaming included.
+func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 512<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	out, req, err := s.translator.Request(body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("translate request: %v", err), http.StatusBadRequest)
+		return
+	}
+	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		s.engine.String()+"/v1/chat/completions", bytes.NewReader(out))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	up.Header.Set("Content-Type", "application/json")
+	resp, err := s.inference.Do(up)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
+	}
+	if req.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		if err := s.translator.Stream(w, resp.Body); err != nil {
+			return // stream already started; nothing safe to send
+		}
+		return
+	}
+	upstream, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	translated, err := s.translator.Response(upstream)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("translate response: %v", err), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(translated)
 }
 
 // metrics passes the engine's Prometheus output through and appends the

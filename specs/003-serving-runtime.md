@@ -26,10 +26,20 @@ prefix, launch the pinned engine (SGLang or vLLM) with the manifest's
 args, and expose the OpenAI-compatible API plus the latere health/metrics
 contract (same as ../ocrmodel: `/healthz`, `/ready`, `/metrics`).
 
-Engines already ship OpenAI-compatible servers — we do **not** wrap or
-proxy the inference path (unlike ocrmodel, which adds domain endpoints).
-The runtime is: entrypoint + weight loading + config rendering + health
+Engines already ship OpenAI-compatible servers — we do **not** reshape
+the inference path (unlike ocrmodel, which adds domain endpoints). The
+runtime is: entrypoint + weight loading + config rendering + health
 surface. Thin by design.
+
+**Dialects.** The engine's OpenAI Chat surface proxies through
+unchanged. The shim additionally serves `POST /anthropic/v1/messages`
+(Anthropic Messages, streaming included) by translating through the
+shared `latere.ai/x/pkg/llmdialect` package (anthropic frontend →
+openaichat backend) — so Claude-style callers can hit a model endpoint
+directly. The **Lux dialect is deliberately not served here**: that
+surface belongs to the gateway, which embeds the same package
+([[009-lux-integration]]); duplicating it per pod would re-implement
+gateway concerns.
 
 ## Components
 
@@ -105,6 +115,10 @@ container.
 5. Manifest validation rejects unknown fields, unpinned revisions, and
    engine/args mismatches; `runtime: custom` without `image` is rejected
    (unit tests).
+6. `POST /anthropic/v1/messages` returns a well-formed Anthropic
+   Messages response (and SSE stream) backed by the engine's OpenAI
+   endpoint; malformed requests 400, engine failures pass through
+   (tests against a fake engine).
 
 ## Non-goals
 

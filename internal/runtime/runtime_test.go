@@ -433,3 +433,187 @@ func url_Parse(raw string) (struct{ Port int }, error) {
 	fmt.Sscan(portStr, &out.Port)
 	return out, nil
 }
+
+// chatEngine fakes the engine's OpenAI Chat surface for dialect tests.
+func chatEngine(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if fail, _ := req["model"].(string); fail == "boom" {
+			http.Error(w, `{"error":"kaput"}`, http.StatusInternalServerError)
+			return
+		}
+		if stream, _ := req["stream"].(bool); stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fl := w.(http.Flusher)
+			for _, chunk := range []string{
+				`{"id":"c1","object":"chat.completion.chunk","model":"tiny","choices":[{"index":0,"delta":{"role":"assistant","content":"he"}}]}`,
+				`{"id":"c1","object":"chat.completion.chunk","model":"tiny","choices":[{"index":0,"delta":{"content":"llo"}}]}`,
+				`{"id":"c1","object":"chat.completion.chunk","model":"tiny","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			} {
+				fmt.Fprintf(w, "data: %s\n\n", chunk)
+				fl.Flush()
+			}
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestShimAnthropicMessages(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	body := `{"model":"tiny","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, out)
+	}
+	if !strings.Contains(string(out), `"message"`) || !strings.Contains(string(out), "hello") {
+		t.Fatalf("not an anthropic message: %s", out)
+	}
+}
+
+func TestShimAnthropicMessagesStream(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	body := `{"model":"tiny","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, out)
+	}
+	s := string(out)
+	if !strings.Contains(s, "message_start") || !strings.Contains(s, "content_block_delta") ||
+		!strings.Contains(s, "message_stop") {
+		t.Fatalf("not an anthropic SSE stream: %s", s)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("content-type %q", ct)
+	}
+}
+
+func TestShimAnthropicMessagesErrors(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	// Malformed request body.
+	resp, _ := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader("{"))
+	if resp.StatusCode != 400 {
+		t.Fatalf("bad body status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Engine-side failure passes its status through.
+	body := `{"model":"boom","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`
+	resp, _ = http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 500 {
+		t.Fatalf("engine error status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Wrong method.
+	resp, _ = http.Get(front.URL + "/anthropic/v1/messages")
+	if resp.StatusCode != 405 {
+		t.Fatalf("GET status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Engine unreachable.
+	dead, _ := NewShim("http://127.0.0.1:1")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader(
+		`{"model":"tiny","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
+	dead.ServeHTTP(rec, req)
+	if rec.Code != 502 {
+		t.Fatalf("dead engine status %d", rec.Code)
+	}
+}
+
+func TestShimAnthropicMessagesBadUpstream(t *testing.T) {
+	// Engine returns 200 with garbage — non-stream and stream.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if stream, _ := req["stream"].(bool); stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {not-json\n\n")
+			return
+		}
+		fmt.Fprint(w, "definitely-not-json")
+	}))
+	defer srv.Close()
+	shim, err := NewShim(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	body := `{"model":"tiny","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`
+	resp, _ := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 502 {
+		t.Fatalf("garbage upstream status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Streaming garbage: status is already 200, but the handler must
+	// terminate without panicking.
+	sbody := `{"model":"tiny","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	resp, err = http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(sbody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, fmt.Errorf("read boom") }
+
+func TestShimAnthropicMessagesBodyReadError(t *testing.T) {
+	shim, err := NewShim("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/anthropic/v1/messages", errReader{})
+	shim.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("body read error status %d", rec.Code)
+	}
+}
