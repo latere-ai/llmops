@@ -1,0 +1,105 @@
+---
+title: Serving Runtime (engine container + S3 loading + API surface)
+status: draft
+depends_on:
+  - 001-inference-engine-selection.md
+  - 002-weights-registry.md
+affects:
+  - runtime/
+  - models/
+  - Dockerfile.sglang
+  - Dockerfile.vllm
+effort: medium
+created: 2026-07-18
+updated: 2026-07-18
+author: changkun
+dispatched_task_id: null
+---
+
+# Serving Runtime (engine container + S3 loading + API surface)
+
+## Overview
+
+One containerized runtime pattern that turns a `models/<name>.yaml`
+manifest into a serving process: fetch/stream weights from the frozen S3
+prefix, launch the pinned engine (SGLang or vLLM) with the manifest's
+args, and expose the OpenAI-compatible API plus the latere health/metrics
+contract (same as ../ocrmodel: `/healthz`, `/ready`, `/metrics`).
+
+Engines already ship OpenAI-compatible servers — we do **not** wrap or
+proxy the inference path (unlike ocrmodel, which adds domain endpoints).
+The runtime is: entrypoint + weight loading + config rendering + health
+surface. Thin by design.
+
+## Components
+
+1. **`runtime/entrypoint`** — reads `MODEL_MANIFEST` (mounted yaml),
+   resolves the S3 prefix, prepares weights (below), renders engine CLI
+   args, execs the engine server. One image per engine
+   (`Dockerfile.sglang`, `Dockerfile.vllm`), engine versions pinned per
+   [[001-inference-engine-selection]].
+2. **Weight preparation**, two modes selected in the manifest:
+   - `load: nvme-cache` (default, both engines): sync S3 prefix →
+     node-local NVMe path via `s5cmd` (verify against `_manifest.json`),
+     then point the engine at the local dir. Idempotent: verified files
+     are not re-fetched; concurrent pods on one node share the cache
+     (flock).
+   - `load: s3-stream` (vLLM only): `--load-format runai_streamer`
+     directly from the S3 URI, concurrency 16–32. No disk staging.
+3. **Health surface** — engines expose their own health endpoints; a tiny
+   sidecar-free shim maps them to the latere contract: `/healthz` (process
+   up), `/ready` (model loaded, engine reports ready), `/metrics`
+   (engine's Prometheus output passed through, plus weight-load duration
+   gauge).
+
+## Manifest schema (`models/<name>.yaml`)
+
+```yaml
+name: kimi-k2.7-code
+hf_repo: moonshotai/Kimi-K2.7-Code
+revision: <sha>                 # pinned; matches S3 prefix
+s3_prefix: s3://latere-models/moonshotai/Kimi-K2.7-Code/<sha>/
+format: int4-qat
+license: modified-mit           # + note field for clauses
+engine: sglang                  # or vllm
+load: nvme-cache
+gpu: { type: h200, count: 8, nodes: 1 }
+context_max: 262144
+args:                           # engine-specific flags, verbatim
+  - --tp-size=8
+  - --tool-call-parser=kimi_k2
+  - --reasoning-parser=kimi_k2
+```
+
+Schema validated by a `runtime validate` subcommand (test-covered); CI
+validates all manifests.
+
+## Acceptance criteria
+
+1. `docker run` with a small open model manifest (e.g. a <10 GB model
+   mirrored by [[002-weights-registry]]'s test) serves
+   `/v1/chat/completions` from S3-frozen weights on a single local GPU —
+   the e2e test for the whole S3→engine path, runnable in CI on one GPU.
+2. `/healthz`, `/ready`, `/metrics` behave per the ocrmodel contract:
+   `/ready` 503 during load, 200 after; metrics include
+   `weights_load_seconds`.
+3. NVMe cache mode: second pod start on a warm node skips download
+   (test asserts no S3 GETs); corrupted cache file is detected and
+   re-fetched (test).
+4. `s3-stream` mode boots the same test model on vLLM with zero disk
+   staging.
+5. Manifest validation rejects unknown fields, unpinned revisions, and
+   engine/args mismatches (unit tests).
+
+## Non-goals
+
+- Custom inference endpoints or prompt logic (engines' OpenAI API is the
+  surface; Lux adds policy).
+- Multi-node launch (leader/worker wiring lives in [[008-k8s-serving]]).
+- Autoscaling, PD-disaggregation, KV-cache tiering.
+
+## Verification
+
+- CI: manifest validation + shim unit tests; single-GPU e2e with the test
+  model (needs a GPU runner — if unavailable, e2e runs via `make e2e` on a
+  GPU node and is a release gate, not a PR gate).
