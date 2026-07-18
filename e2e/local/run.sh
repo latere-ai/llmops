@@ -115,6 +115,49 @@ echo "$ARESP" | grep -q '"type":"message"' || fail "not an anthropic message: $A
 say "assert: metrics gauge"
 curl -fsS "http://127.0.0.1:$PORT/metrics" | grep -q "openllms_weights_load_seconds" || fail "gauge missing"
 
+say "assert: reasoning (thinking enabled per-request)"
+RRESP=$(curl -fsS "http://127.0.0.1:$PORT/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"default_model","max_tokens":256,"chat_template_kwargs":{"enable_thinking":true},"messages":[{"role":"user","content":"What is 17*23? Think it through."}]}')
+echo "$RRESP" | grep -q '"reasoning"' || fail "no reasoning field: $RRESP"
+
+TOOLS='{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}'
+say "assert: OpenAI tool call"
+TOOL_OK=""
+for _ in 1 2 3; do # 0.6B tool compliance is good but not certain; retry
+  TRESP=$(curl -fsS "http://127.0.0.1:$PORT/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"default_model","max_tokens":128,"temperature":0.1,"tools":['"$TOOLS"'],"messages":[{"role":"user","content":"What is the weather in Munich right now? You must call the get_weather tool."}]}')
+  if echo "$TRESP" | grep -q '"tool_calls"' && echo "$TRESP" | grep -q '"get_weather"'; then
+    TOOL_OK=1; break
+  fi
+done
+[ -n "$TOOL_OK" ] || fail "no tool call after 3 attempts: $TRESP"
+
+say "assert: tool-result round trip"
+FRESP=$(curl -fsS "http://127.0.0.1:$PORT/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"default_model","max_tokens":128,"messages":[
+        {"role":"user","content":"What is the weather in Munich right now?"},
+        {"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Munich\"}"}}]},
+        {"role":"tool","tool_call_id":"call_1","content":"22C, sunny"}],
+      "tools":['"$TOOLS"']}')
+echo "$FRESP" | grep -qi "22\|sunny" || fail "tool result not used in answer: $FRESP"
+
+say "assert: Anthropic tools translate to tool_use"
+ATOOL_OK=""
+for _ in 1 2 3; do
+  ATRESP=$(curl -fsS "http://127.0.0.1:$PORT/anthropic/v1/messages" \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"default_model","max_tokens":128,"temperature":0.1,
+         "tools":[{"name":"get_weather","description":"Get current weather for a city","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],
+         "messages":[{"role":"user","content":"What is the weather in Munich right now? You must call the get_weather tool."}]}')
+  if echo "$ATRESP" | grep -q '"tool_use"' && echo "$ATRESP" | grep -q '"get_weather"'; then
+    ATOOL_OK=1; break
+  fi
+done
+[ -n "$ATOOL_OK" ] || fail "no anthropic tool_use after 3 attempts: $ATRESP"
+
 say "bench: small load"
 "$BIN"/bench --url "http://127.0.0.1:$PORT" --model default_model \
   --requests 4 --concurrency 2 --max-tokens 32 --out "$SCRATCH/report.json"

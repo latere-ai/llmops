@@ -44,6 +44,12 @@ this proves the integrations the fakes stub out.
    model output; `/anthropic/v1/messages` returns an Anthropic-shaped
    response; `/metrics` exposes `openllms_weights_load_seconds`;
    system-prompt enforcement observable in output.
+   Agentic surface: reasoning content (thinking enabled per-request via
+   `chat_template_kwargs`), an OpenAI tool call (`tool_calls` with the
+   requested function), a tool-result round trip (answer uses the tool
+   output), and Anthropic-format `tools` translating end-to-end into a
+   `tool_use` block — the same reasoning/tool paths the production
+   models' parsers (`kimi_k2`, `minimax_m3`) serve at scale.
 6. `bench` runs a small load and emits a report.
 7. Warm-start check: restart serve, `/ready` with zero store reads.
 
@@ -89,3 +95,8 @@ otherwise), engine health path is overridable, s5cmd errors carry
 stderr, MinIO data must live on host disk (container VM filled up),
 and the serve process is exec'd directly (not `go run`) so SIGTERM
 reaches the runtime's clean shutdown path.
+
+Agentic extension (same day): reasoning, OpenAI tool call, tool-result
+round trip, and Anthropic tool_use translation all asserted green with
+Qwen3-0.6B — including the dialect layer mapping Anthropic `tools` /
+`tool_use` through the OpenAI engine surface.
