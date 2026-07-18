@@ -35,13 +35,47 @@ in `specs/` and in each model's manifest under `models/`.
 
 ```
 specs/      design specs (start at specs/README.md)
-models/     per-model manifests: HF revision, S3 prefix, engine config
-tools/      weight mirroring (HF → S3), verification, benchmarks
-deploy/     k8s manifests for GPU serving
+models/     per-model manifests: pinned HF revision, S3 prefix, engine config
+deploy/     k8s LeaderWorkerSet manifests, one per model
+cmd/        mirror (HF → S3 freeze), runtime (container entrypoint), bench
+internal/   manifest schema, mirror logic, runtime shim, bench, deploycheck
 ```
+
+## Usage
+
+Freeze a model into S3 (one-time per revision):
+
+```sh
+go run ./cmd/mirror pull moonshotai/Kimi-K2.7-Code --dir /scratch/kimi
+go run ./cmd/mirror push moonshotai/Kimi-K2.7-Code@<sha> \
+    --dir /scratch/kimi --bucket s3://latere-models
+go run ./cmd/mirror verify s3://latere-models/moonshotai/Kimi-K2.7-Code/<sha>/
+```
+
+Validate manifests and serve (inside the runtime image on a GPU node):
+
+```sh
+go run ./cmd/runtime validate models/
+runtime serve --manifest /etc/openllms/model.yaml   # container entrypoint
+```
+
+Benchmark a live endpoint:
+
+```sh
+go run ./cmd/bench --url http://kimi-k2-7-code.open-llms.svc:8000 \
+    --model kimi-k2.7-code --concurrency 8 --requests 32 --out report.json
+```
+
+`make cover` runs the test suite with a ≥90% coverage gate; the CI-run
+e2e suite exercises mirror pull→push→verify and the runtime
+serve→ready→metrics path against fakes. GPU serving on real hardware is
+a release gate per model (specs/004–007).
 
 ## Status
 
-Spec stage. Read `specs/README.md` for the roadmap and
-`specs/001-inference-engine-selection.md` for the vLLM vs SGLang
-decision record.
+Implementation of specs 001–003 and 008/010 scaffolding is in place
+(mirror tool, runtime entrypoint + health shim, manifests with pinned
+revisions, LWS deploys, bench harness). Not yet done: the actual
+multi-hundred-GB mirrors, GPU deployments, and Lux registration
+(specs/004–007, 009). Read `specs/README.md` for the roadmap and
+`specs/001-inference-engine-selection.md` for the engine decision.
