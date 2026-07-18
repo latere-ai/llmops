@@ -261,7 +261,7 @@ func TestEngineCommand(t *testing.T) {
 	}
 	joined := strings.Join(cmd, " ")
 	if !strings.Contains(joined, "sglang.launch_server") || !strings.Contains(joined, "--model-path /models/x") ||
-		!strings.Contains(joined, "--tp-size=8") {
+		!strings.Contains(joined, "--tp-size=8") || !strings.Contains(joined, "--served-model-name tiny") {
 		t.Fatalf("sglang cmd = %q", joined)
 	}
 
@@ -778,5 +778,27 @@ func TestSystemPromptStreamingThroughForward(t *testing.T) {
 	out, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(out), "chat.completion.chunk") || !strings.Contains(string(out), "[DONE]") {
 		t.Fatalf("stream not passed through: %s", out)
+	}
+}
+
+func TestShimHealthPathOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/custom-health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	shim, err := NewShim(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shim.EngineHealthy() {
+		t.Fatal("default /health should be 404 here")
+	}
+	shim.HealthPath = "/custom-health"
+	if !shim.EngineHealthy() {
+		t.Fatal("custom health path not used")
 	}
 }

@@ -59,6 +59,10 @@ func EngineCommand(m *manifest.Manifest, model string, port int) ([]string, erro
 	default:
 		return nil, fmt.Errorf("runtime %q has no engine command (custom images launch themselves)", m.Runtime)
 	}
+	// Serve under the manifest name, not the weights path — callers
+	// address models as open-llms/<name> and both engines 404 unknown
+	// model ids otherwise.
+	cmd = append(cmd, "--served-model-name", m.Name)
 	return append(cmd, m.Args...), nil
 }
 
@@ -81,6 +85,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 		return err
 	}
 	shim.SystemPrompt = m.SystemPrompt
+	shim.HealthPath = os.Getenv("OPENLLMS_ENGINE_HEALTH_PATH")
 
 	// Expose /healthz (and a not-ready /ready) while weights load.
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", opts.Port))

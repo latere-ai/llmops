@@ -36,6 +36,11 @@ type Shim struct {
 	// SystemPrompt, when set, is enforced on every chat request —
 	// both dialect surfaces (specs/003).
 	SystemPrompt *manifest.SystemPrompt
+
+	// HealthPath is the engine's health endpoint (default /health,
+	// which SGLang and vLLM both expose; overridable for substitute
+	// engines — specs/011).
+	HealthPath string
 }
 
 // NewShim fronts the engine at engineURL (e.g. http://127.0.0.1:30000).
@@ -77,7 +82,11 @@ func (s *Shim) weightsLoaded() bool {
 // EngineHealthy polls the engine's own health endpoint (both SGLang and
 // vLLM expose GET /health).
 func (s *Shim) EngineHealthy() bool {
-	resp, err := s.client.Get(s.engine.String() + "/health")
+	path := s.HealthPath
+	if path == "" {
+		path = "/health"
+	}
+	resp, err := s.client.Get(s.engine.String() + path)
 	if err != nil {
 		return false
 	}

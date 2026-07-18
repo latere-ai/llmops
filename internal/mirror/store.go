@@ -1,8 +1,10 @@
 package mirror
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -135,6 +137,11 @@ type S5cmdStore struct{ Prefix string }
 func (s *S5cmdStore) run(args ...string) ([]byte, error) {
 	out, err := exec.Command("s5cmd", args...).Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("s5cmd %s: %w: %s",
+				strings.Join(args, " "), err, bytes.TrimSpace(ee.Stderr))
+		}
 		return nil, fmt.Errorf("s5cmd %s: %w", strings.Join(args, " "), err)
 	}
 	return out, nil
