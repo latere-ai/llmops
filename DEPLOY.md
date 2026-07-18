@@ -1,0 +1,198 @@
+# Deployment Guide
+
+How to take a model from Hugging Face to a serving endpoint behind Lux:
+build the images, freeze the weights into S3, deploy on GPU Kubernetes,
+and verify. The configuration reference at the end lists every
+customization knob. Design rationale lives in `specs/`.
+
+## Prerequisites
+
+| What | Why | Notes |
+|---|---|---|
+| S3-compatible bucket (`latere-models`) | frozen weights home | AWS S3, DO Spaces, R2, MinIO — anything s5cmd speaks. Enable versioning; Object Lock if supported. |
+| k8s Secret `mirror-s3` in ns `open-llms` | mirror Job + node cache credentials | keys: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, plus `S3_ENDPOINT_URL` for non-AWS. Optional `HF_TOKEN` for gated repos. |
+| GPU nodes + NVIDIA GPU Operator | run the engines | node pools labeled `latere.ai/gpu-pool: h200` (or `b200`); NVMe at `/var/cache/openllms` |
+| [LeaderWorkerSet](https://github.com/kubernetes-sigs/lws) installed | pod-group primitive for (multi-node-ready) serving | `kubectl apply --server-side -f https://github.com/kubernetes-sigs/lws/releases/latest/download/manifests.yaml` |
+| `docker login <registry>` | push images | default registry is `ghcr.io/latere-ai`; any OCI registry works (ECR, Nexus, Harbor, …) via `REGISTRY=` |
+
+## 1. Build and push images
+
+Three images, versioned together:
+
+```sh
+make release VERSION=v0.1.0
+# or into your own registry (ECR, Nexus, Harbor, ...):
+make release VERSION=v0.1.0 REGISTRY=nexus.example.com/latere
+```
+
+builds and pushes `linux/amd64` images (default registry
+`ghcr.io/latere-ai`; the image *names* are fixed, the registry prefix is
+yours):
+
+- `open-llms-runtime-sglang` — SGLang engine (pinned, specs/001) + `runtime` entrypoint
+- `open-llms-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
+- `open-llms-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job
+
+Engine versions are pinned in the Dockerfiles — bump them deliberately,
+never `latest`. After a release, update the image references in
+`deploy/*/lws.yaml` (and `deploy/mirror/job.yaml`) — the consistency
+check validates the image *name* against the manifest's runtime, not the
+registry, so a custom registry passes CI unchanged. If your registry is
+private, add an `imagePullSecrets` entry to the pod specs.
+
+## 2. Ship a model (freeze weights into S3)
+
+One-time per model revision. In-cluster (recommended — bandwidth and
+disk live there):
+
+```sh
+# Edit deploy/mirror/job.yaml: set metadata.name, MODEL_REPO, MODEL_SHA,
+# and the scratch volume size (>= model size, see specs/002 table).
+kubectl -n open-llms apply -f deploy/mirror/job.yaml
+kubectl -n open-llms logs -f job/mirror-<name>
+```
+
+The Job pulls from HF (SHA256-verified against LFS OIDs, safetensors
+only), uploads via s5cmd, and writes `_manifest.json` last — its
+presence marks the mirror complete. Re-running is idempotent; verify
+anytime:
+
+```sh
+mirror verify s3://latere-models/<org>/<repo>/<sha>/
+mirror ls --bucket s3://latere-models
+```
+
+Then pin the model in `models/<name>.yaml` (see the configuration
+reference below) and run `make validate`. CI enforces that every model
+manifest has a consistent `deploy/<name>/lws.yaml`.
+
+## 3. Deploy and serve
+
+```sh
+kubectl create namespace open-llms --dry-run=client -o yaml | kubectl apply -f -
+
+# The runtime reads the manifest from a ConfigMap:
+kubectl -n open-llms create configmap kimi-k2-7-code-manifest \
+  --from-file=model.yaml=models/kimi-k2.7-code.yaml
+
+kubectl -n open-llms apply -f deploy/kimi-k2.7-code/lws.yaml
+```
+
+Watch startup — the pod stages weights from S3 onto node NVMe, then
+launches the engine:
+
+```sh
+kubectl -n open-llms get pods -w
+kubectl -n open-llms logs -f <pod>   # "weights: fetching ..." then "launching sglang"
+```
+
+`/ready` returns 503 during load and 200 when the engine is up
+(readiness probe allows a long cold start; warm restarts on the same
+node skip the download entirely). Verify the endpoint:
+
+```sh
+kubectl -n open-llms port-forward svc/kimi-k2-7-code 8000 &
+
+# OpenAI surface (native engine passthrough)
+curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"kimi-k2.7-code","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
+
+# Anthropic surface (llmdialect translation)
+curl -s localhost:8000/anthropic/v1/messages -H 'Content-Type: application/json' \
+  -d '{"model":"kimi-k2.7-code","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
+
+# Metrics (engine passthrough + openllms_weights_load_seconds)
+curl -s localhost:8000/metrics | grep openllms
+
+# Baseline benchmark (feeds Lux cost config, specs/010)
+go run ./cmd/bench --url http://localhost:8000 --model kimi-k2.7-code \
+  --concurrency 8 --requests 32 --out report.json
+```
+
+Finally register the in-cluster endpoint
+(`http://<name>.open-llms.svc:8000/v1`) as a provider in Lux
+(specs/009) — Lux is the only ingress; engine pods are never exposed
+publicly.
+
+**License gates:** check `license`/`license_note` in the model manifest
+before Lux exposure — MiniMax-M3 requires a one-time commercial notice
+(specs/006 AC0); Kimi-K2.7 carries a modified-MIT attribution clause.
+
+## Local rehearsal
+
+The full pipeline runs on a laptop at zero cloud cost — same manifests,
+same tools, MinIO for S3, a 0.6B model, mlx as the engine:
+
+```sh
+make e2e-local
+```
+
+Use it to validate changes to the runtime/mirror before touching real
+hardware (specs/011).
+
+## Configuration reference
+
+### Model manifest (`models/<name>.yaml`) — the deploy's source of truth
+
+| Field | Values | Effect |
+|---|---|---|
+| `name` | `[a-z0-9.-]+` | model id callers use; k8s resources use it with `.`→`-` |
+| `hf_repo`, `revision` | repo + 40-hex commit SHA | pinned identity; `revision` must match the S3 prefix |
+| `s3_prefix` | `s3://<bucket>/<hf_repo>/<revision>/` | where frozen weights live (validated shape) |
+| `format` | free text (`fp8`, `int4-qat`, …) | documentation of the checkpoint format |
+| `license`, `license_note` | free text | compliance record; gates noted here block Lux exposure |
+| `runtime` | `sglang` \| `vllm` \| `custom` | which engine image; `custom` requires `image:` and serves any container honoring the health contract |
+| `image` | image ref | custom-runtime container (OCR wrappers etc.) |
+| `load` | `nvme-cache` (default) \| `s3-stream` | staged via node NVMe, or vLLM-only direct S3 streaming |
+| `gpu` | `{type, count, nodes}` | resource shape; must match the LWS manifest (CI-checked) |
+| `context_max` | int | documented context config; pair with the KV-cache args it needs |
+| `args` | list, verbatim | engine CLI flags — parallelism (`--tp-size`), parsers (`--tool-call-parser`), quantization, KV dtype. Per-model required flags are enforced (e.g. MiniMax `--block-size=128`) |
+| `system_prompt` | `{mode, text}` | enforced by the shim on every request, both dialects: `default` (only when caller sends none) \| `prepend` \| `override` |
+
+The runtime always adds `--served-model-name <name>` so callers address
+the manifest name, and renders the base engine command itself — `args`
+only carries model-specific flags.
+
+### Runtime container (flags / env)
+
+| Knob | Default | Purpose |
+|---|---|---|
+| `--manifest` | `/etc/openllms/model.yaml` | manifest path (mounted ConfigMap) |
+| `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, `/v1/*`, `/anthropic/v1/messages`) |
+| `--engine-port` | 30000 | engine's internal port |
+| `--cache-root` | `/cache` | NVMe cache mount; keyed by repo+revision, flock-shared across pods on a node |
+| `OPENLLMS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |
+| `OPENLLMS_ENGINE_HEALTH_PATH` | `/health` | engine health endpoint, for engines that differ |
+
+### Deploy manifest (`deploy/<name>/lws.yaml`)
+
+| Knob | Where | Notes |
+|---|---|---|
+| replicas | `spec.replicas` | whole serving groups (capacity planning, not HPA) |
+| group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL, specs/008) |
+| GPU count/pool | `resources.limits."nvidia.com/gpu"`, `nodeSelector` | must match manifest `gpu` (CI-checked); pool label selects H200 vs B200 |
+| image ref | container `image` | `<REGISTRY>/open-llms-runtime-<engine>:<VERSION>` from `make release`; registry prefix is free, name must match the manifest runtime (CI-checked) |
+| NVMe cache | `volumes.cache.hostPath` | `/var/cache/openllms`; prefetch DaemonSet (specs/008) warms it |
+| `/dev/shm` | `volumes.shm.sizeLimit` | ≥32Gi (vLLM requires it for DeepSeek-V4-class models) |
+| probe budget | `readinessProbe.failureThreshold` | cold start for the big models is minutes — size it accordingly |
+
+### Mirror Job (`deploy/mirror/job.yaml`)
+
+| Knob | Purpose |
+|---|---|
+| `MODEL_REPO`, `MODEL_SHA` | which revision to freeze |
+| `mirror-s3` Secret | bucket credentials; `S3_ENDPOINT_URL` for DO Spaces/R2/MinIO |
+| scratch volume size | ≥ model size on disk (specs/002 table: 444 GB – 1.6 TB) |
+
+## Troubleshooting
+
+- **`/ready` stuck at 503** — check pod logs: still `weights: fetching`
+  (normal on cold start), engine crash (log tail shows the engine's
+  stderr), or a hash mismatch (store corruption → run `mirror verify`).
+- **404 from `/v1/chat/completions`** — model id in the request must be
+  the manifest `name` (that's the served model name).
+- **mirror Job fails mid-upload** — re-run it; push is idempotent and
+  skips verified files. `_manifest.json` absent = mirror incomplete.
+- **Second pod on a node re-downloads** — cache is keyed by
+  repo+revision under `--cache-root`; confirm the hostPath mount and
+  that revisions actually match.

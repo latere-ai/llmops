@@ -1,5 +1,8 @@
 GO ?= go
 COVER_MIN = 90.0
+# Image registry/namespace prefix — override for Nexus, ECR, Harbor, etc.
+# e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
+REGISTRY ?= ghcr.io/latere-ai
 
 .PHONY: build test cover validate fmt vet e2e images clean
 
@@ -34,9 +37,21 @@ e2e:
 	$(GO) test ./... -run 'E2E' -v
 
 images:
-	docker build -f Dockerfile.sglang -t ghcr.io/latere-ai/open-llms-runtime-sglang:dev .
-	docker build -f Dockerfile.vllm -t ghcr.io/latere-ai/open-llms-runtime-vllm:dev .
-	docker build -f Dockerfile.mirror -t ghcr.io/latere-ai/open-llms-mirror:dev .
+	docker build -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:dev .
+	docker build -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:dev .
+	docker build -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:dev .
+
+# Versioned build + push of all three images (see DEPLOY.md).
+# Usage: make release VERSION=v0.1.0 [REGISTRY=...]
+# (requires docker login against $(REGISTRY))
+release:
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=vX.Y.Z [REGISTRY=...]"; exit 1; }
+	docker build --platform linux/amd64 -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:$(VERSION) .
+	docker push $(REGISTRY)/open-llms-runtime-sglang:$(VERSION)
+	docker push $(REGISTRY)/open-llms-runtime-vllm:$(VERSION)
+	docker push $(REGISTRY)/open-llms-mirror:$(VERSION)
 
 clean:
 	rm -f coverage.out

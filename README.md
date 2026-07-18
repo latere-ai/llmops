@@ -41,6 +41,9 @@ cmd/        mirror (HF → S3 freeze), runtime (container entrypoint), bench
 internal/   manifest schema, mirror logic, runtime shim, bench, deploycheck
 ```
 
+Operators: [`DEPLOY.md`](./DEPLOY.md) is the end-to-end guide — build
+images, freeze weights, deploy, and every configuration knob.
+
 ## Usage
 
 Freeze a model into S3 (one-time per revision):
