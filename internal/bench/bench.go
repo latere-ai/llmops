@@ -105,10 +105,11 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	return rep, nil
 }
 
+// percentile is the nearest-rank method: idx = ceil(p/100 * n) - 1.
 func percentile(sorted []time.Duration, p int) time.Duration {
-	idx := (len(sorted)-1)*p/100 + 1
-	if idx >= len(sorted) {
-		idx = len(sorted) - 1
+	idx := (p*len(sorted) + 99) / 100
+	if idx > 0 {
+		idx--
 	}
 	return sorted[idx]
 }

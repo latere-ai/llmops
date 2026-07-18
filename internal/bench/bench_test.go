@@ -133,10 +133,10 @@ func TestRunDefaults(t *testing.T) {
 
 func TestPercentile(t *testing.T) {
 	d := []time.Duration{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	if p := percentile(d, 50); p != 6 {
+	if p := percentile(d, 50); p != 5 {
 		t.Fatalf("p50 = %d", p)
 	}
-	if p := percentile(d, 95); p != 9 {
+	if p := percentile(d, 95); p != 10 {
 		t.Fatalf("p95 = %d", p)
 	}
 	if p := percentile([]time.Duration{7}, 95); p != 7 {
