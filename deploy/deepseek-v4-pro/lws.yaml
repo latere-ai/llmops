@@ -1,0 +1,62 @@
+# deepseek-v4-pro (specs/008).
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: deepseek-v4-pro
+  namespace: open-llms
+  labels:
+    app.kubernetes.io/name: deepseek-v4-pro
+    app.kubernetes.io/part-of: open-llms
+spec:
+  replicas: 1
+  leaderWorkerTemplate:
+    size: 1
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      metadata:
+        labels:
+          app.kubernetes.io/name: deepseek-v4-pro
+      spec:
+        nodeSelector:
+          latere.ai/gpu-pool: b200
+        containers:
+          - name: runtime
+            image: ghcr.io/latere-ai/open-llms-runtime-sglang:v0.1.0
+            args: ["serve", "--manifest", "/etc/openllms/model.yaml"]
+            ports:
+              - containerPort: 8000
+                name: http
+            readinessProbe:
+              httpGet: { path: /ready, port: 8000 }
+              periodSeconds: 10
+              failureThreshold: 180 # cold start can be many minutes
+            livenessProbe:
+              httpGet: { path: /healthz, port: 8000 }
+              periodSeconds: 30
+            resources:
+              limits:
+                nvidia.com/gpu: "8"
+            volumeMounts:
+              - { name: model-manifest, mountPath: /etc/openllms }
+              - { name: cache, mountPath: /cache }
+              - { name: shm, mountPath: /dev/shm }
+        volumes:
+          - name: model-manifest
+            configMap: { name: deepseek-v4-pro-manifest }
+          - name: cache
+            hostPath: { path: /var/cache/openllms, type: DirectoryOrCreate }
+          - name: shm
+            emptyDir: { medium: Memory, sizeLimit: 32Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepseek-v4-pro
+  namespace: open-llms
+spec:
+  selector:
+    app.kubernetes.io/name: deepseek-v4-pro
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
