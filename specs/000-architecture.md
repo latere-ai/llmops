@@ -76,8 +76,12 @@ goes last because it has the hardest hardware requirement.
   *possible* later; the training stack will be a separate repo (likely
   alongside ../wade). This repo's only obligation: don't preclude it —
   keep base-checkpoint mirroring supported in the registry tool.
-- Small/dense models that fit a single GPU (ocrmodel-style wrappers cover
-  those).
+- Domain API wrappers (ocrmodel-style OCR endpoints) — those stay their
+  own repos. But their *weights* belong in the registry, and their
+  containers can deploy here via `runtime: custom`
+  ([[003-serving-runtime]]): the repo is scoped to any self-hosted
+  open-weights model (OCR, audio, multimodal, embeddings), not only
+  frontier chat LLMs.
 - Building our own gateway features (Lux owns that).
 
 ## Verification

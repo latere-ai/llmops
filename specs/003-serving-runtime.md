@@ -61,7 +61,8 @@ revision: <sha>                 # pinned; matches S3 prefix
 s3_prefix: s3://latere-models/moonshotai/Kimi-K2.7-Code/<sha>/
 format: int4-qat
 license: modified-mit           # + note field for clauses
-engine: sglang                  # or vllm
+runtime: sglang                 # sglang | vllm | custom
+# image: ghcr.io/latere-ai/...  # required iff runtime: custom
 load: nvme-cache
 gpu: { type: h200, count: 8, nodes: 1 }
 context_max: 262144
@@ -73,6 +74,19 @@ args:                           # engine-specific flags, verbatim
 
 Schema validated by a `runtime validate` subcommand (test-covered); CI
 validates all manifests.
+
+## Custom runtimes (`runtime: custom`)
+
+The two engine images cover OpenAI-chat-shaped models. Anything else —
+OCR wrappers (../ocrmodel-style), TTS/ASR beyond what vLLM serves,
+embeddings, future modalities — plugs in as `runtime: custom` with an
+`image:` reference. The contract is the same one the engine images honor:
+weights arrive from the manifest's S3 prefix (nvme-cache mode), the
+manifest is mounted at `MODEL_MANIFEST`, and the container exposes
+`/healthz`, `/ready`, `/metrics`. Everything downstream (k8s deploy, Lux
+registration, dashboards) is runtime-blind. Custom images live in their
+own repos; this repo only validates the manifest and deploys the
+container.
 
 ## Acceptance criteria
 
@@ -89,7 +103,8 @@ validates all manifests.
 4. `s3-stream` mode boots the same test model on vLLM with zero disk
    staging.
 5. Manifest validation rejects unknown fields, unpinned revisions, and
-   engine/args mismatches (unit tests).
+   engine/args mismatches; `runtime: custom` without `image` is rejected
+   (unit tests).
 
 ## Non-goals
 

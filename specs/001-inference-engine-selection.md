@@ -19,7 +19,8 @@ dispatched_task_id: null
 
 **SGLang is the primary engine; vLLM is the supported second engine; the
 runtime stays engine-agnostic** (each `models/<name>.yaml` declares
-`engine: sglang|vllm` plus engine args). No orchestrator initially — plain
+`runtime: sglang|vllm|custom` plus engine args; `custom` admits non-chat
+model classes — see [[003-serving-runtime]]). No orchestrator initially — plain
 LWS single-node deployments ([[008-k8s-serving]]); adopt llm-d or Dynamo
 only when we need prefill/decode disaggregation at multi-node scale.
 
@@ -85,8 +86,8 @@ track latest.
 ## Acceptance criteria
 
 1. This record reflects reality at decision time with sources (done above).
-2. `models/*.yaml` schema has an `engine` field; nothing outside the model
-   manifest + runtime image encodes an engine choice.
+2. `models/*.yaml` schema has a `runtime` field; nothing outside the
+   model manifest + runtime image encodes an engine choice.
 3. Revisit trigger documented: revisit if (a) a target model gains an
    engine-exclusive capability we need, (b) InferenceX shows a sustained
    >30% throughput gap on our workload, or (c) we scale past single-node
