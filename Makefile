@@ -4,7 +4,7 @@ COVER_MIN = 90.0
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover validate fmt vet e2e images clean
+.PHONY: build test cover validate fmt fmt-check hooks vet e2e images clean
 
 build:
 	$(GO) build ./...
@@ -24,8 +24,18 @@ cover:
 validate:
 	$(GO) run ./cmd/runtime validate models/
 
+# fmt formats all Go sources in place.
 fmt:
-	gofmt -l . | tee /dev/stderr | wc -l | grep -q '^ *0$$'
+	gofmt -w .
+
+# fmt-check fails if any Go source is not gofmt-formatted.
+fmt-check:
+	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt: unformatted files:"; echo "$$out"; exit 1; fi
+
+# hooks installs the repository git hooks (pre-commit gofmt guard).
+hooks:
+	git config core.hooksPath .githooks
+	@echo "installed git hooks (core.hooksPath=.githooks)"
 
 vet:
 	$(GO) vet ./...

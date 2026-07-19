@@ -13,7 +13,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Format
-        run: make fmt
+        run: make fmt-check
       - name: Vet + tests + coverage gate (>=90%)
         run: make cover
       - name: Validate model manifests
