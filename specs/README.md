@@ -18,12 +18,22 @@ number order — the numbering is the implementation order.
 | 009 | [Lux integration](009-lux-integration.md) | draft | Models as Lux providers, cost tracking |
 | 010 | [Observability & bench](010-observability-bench.md) | draft | Metrics/dashboards, benchmark harness, router comparison |
 | 011 | [Local full-stack e2e](011-local-e2e.md) | draft | Small model + MinIO + local engine; zero-cost pipeline proof |
+| 012 | [Lens fitting pipeline](012-lens-fitting-pipeline.md) | draft | Jacobian lens artifacts per model+revision; first Python code |
+| 013 | [In-engine jspace capture](013-inengine-capture.md) | draft | vLLM plugin + SGLang patch; on-GPU lens apply, all decode tokens |
+| 014 | [jspace readout API](014-jspace-readout-api.md) | draft | Shim SSE stream + Prometheus aggregates from capture frames |
+| 015 | [jspace inspector + dashboards](015-jspace-dashboard.md) | draft | Live layer×token grid at /jspace/ui; Grafana dashboard |
+| 016 | [Fleet MoE lens fitting](016-bigmodel-lens-fitting.md) | draft | Cost-gated VJP fitting for 1T-class models; deferred |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest
 full-quality path to prove S3 → engine → k8s → Lux end to end. 007
 (DeepSeek-V4-Pro) is last: it is the only model that may not fit a single
 existing node and may force the multi-node path.
+
+The jspace monitoring plane (012→015) proves end to end on the local
+Qwen3-0.6B stack before any fleet GPU is spent; 016 gates fleet-model
+lens fitting behind an explicit cost model, mirroring 007's
+hardware-gating pattern.
 
 Research provenance: facts in these specs (model sizes, engine versions,
 framework landscape) were verified against primary sources on 2026-07-18;
