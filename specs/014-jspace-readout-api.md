@@ -5,7 +5,6 @@ depends_on:
   - 013-inengine-capture.md
 affects:
   - internal/runtime/
-  - internal/manifest/
 effort: medium
 created: 2026-07-22
 updated: 2026-07-22
@@ -17,78 +16,95 @@ dispatched_task_id: null
 
 ## Overview
 
-The Go shim ([[003-serving-runtime]]) consumes capture frames from the
-node-local socket ([[013-inengine-capture]]) and exposes them two ways:
-a **live per-request stream** for interactive inspection, and
-**Prometheus aggregates** for fleet-wide monitoring/alerting. This is
-the layer that turns raw (token, layer, top-k) frames into "monitor
-jspace content/intent in real time".
+The Go shim (`internal/runtime/shim.go`) consumes capture frames from
+the node-local socket ([[013-inengine-capture]]) and exposes them two
+ways: a **live per-request SSE stream** for interactive inspection and
+**Prometheus aggregates** on the existing `/metrics` merge point. No
+new process: the shim already owns the listener, the request path, and
+`metrics()`.
 
-The shim already owns request ids and the `/metrics` merge point, so
-no new process is added: a reader goroutine drains the socket into a
-bounded in-memory ring (per active request) plus streaming aggregators.
+The shim is the **server** side of the socket: it listens on
+`OPENLLMS_LENS_SOCK` before the engine starts (mirroring how `Serve`
+brings up `/healthz` before weights load), and the capture publisher
+dials in. Ingest failure or a missing publisher degrades to "no
+jspace data" — proxying is never affected.
 
 ## Components
 
-1. **Frame ingest** — shim connects to `/run/openllms/jspace.sock`,
-   parses NDJSON frames, joins on request id. Bounded buffers
-   (per-request ring of last N tokens, default 512); overflow drops
-   oldest. Ingest failure degrades to "no jspace data", never affects
-   proxying.
-2. **Live stream** — `GET /jspace/stream?rid=<id>` (SSE): frames for
-   one in-flight/recent request, fanned out to any number of
-   subscribers. `GET /jspace/requests` lists recent rids with model +
-   timestamps. Callers obtain the rid from the `X-Request-Id` response
-   header on their chat completion.
-3. **Aggregates on `/metrics`** (appended alongside
-   `openllms_weights_load_seconds`):
+1. **Request ids** — the shim mints a rid for every
+   `POST /v1/chat/completions` (and `/anthropic/v1/messages`) and
+   returns it as the `X-Request-Id` response header. On the proxy
+   path this is a `proxy.Director`/`ModifyResponse` pair; on the
+   intercepted paths (`chatCompletions`, `anthropicMessages`) it is
+   set explicitly. Engine-leg propagation is per-adapter
+   ([[013-inengine-capture]] §4); the shim keeps the rid↔engine-id
+   mapping so frames join regardless of mechanism.
+2. **Frame ingest** (`internal/runtime/jspace.go`, new) — a
+   `jspaceHub` accepts socket connections, decodes NDJSON frames, and
+   maintains:
+   - per-rid ring buffer (last 512 frames; overflow drops oldest,
+     bounded memory);
+   - per-rid subscriber fan-out (channels; slow subscribers dropped,
+     not blocking);
+   - streaming aggregators feeding the metric families below.
+   A new `Shim.jspace *jspaceHub` field; `nil` when lens is disabled.
+3. **HTTP surface** (new `ServeHTTP` cases) —
+   - `GET /jspace/stream?rid=<id>` — SSE; replays the rid's ring then
+     follows live frames until the request completes. Uses the
+     existing `flushWriter` for per-event flushing.
+   - `GET /jspace/requests` — recent rids (model, start time, frame
+     count) from the ring index.
+   - Both return `409 lens disabled` when `jspace == nil`.
+4. **Metric families** (appended in `metrics()` beside
+   `openllms_weights_load_seconds`, same text-format pattern) —
    - `openllms_jspace_layer_entropy{layer}` — rolling mean entropy of
-     the top-k readout per layer (intent-formation depth profile).
+     the renormalized top-k readout per layer (intent-formation depth
+     profile; top-k truncation noted in HELP text).
    - `openllms_jspace_lens_final_agreement{layer}` — fraction of
-     tokens where the layer's top-1 equals the final sampled token
-     (how early the output is "decided").
-   - `openllms_jspace_watchlist_mass{layer,list}` — probability mass
-     on configured token watchlists (e.g. refusal markers, tool-call
-     openers) per layer.
-   - `openllms_jspace_frames_dropped_total` — ingest/capture drops.
-4. **Watchlists** — manifest extension:
-
-   ```yaml
-   lens:
-     watchlists:
-       refusal: ["I'm sorry", "cannot", ...]   # tokenized at load
-   ```
-
-5. **Access control** — `/jspace/*` is an operator surface: bound to
-   the same listener but excluded from Lux registration
-   ([[009-lux-integration]]); k8s NetworkPolicy scopes it to the
-   monitoring namespace.
+     frames whose lens top-1 equals the frame's sampled `token_id`
+     (how early the output is "decided"; frames carry the sampled
+     token per [[013-inengine-capture]] §1).
+   - `openllms_jspace_watchlist_mass{layer,list}` — rolling mean of
+     the `watch` map (full-softmax mass, computed capture-side).
+   - `openllms_jspace_frames_dropped_total` — hub-side drops;
+     capture-side drops arrive as a counter frame and are added.
+5. **Access control** — `/jspace/*` is an operator surface: excluded
+   from Lux registration ([[009-lux-integration]]); k8s NetworkPolicy
+   scopes it to the monitoring namespace ([[008-k8s-serving]] deploy
+   overlay).
 
 ## Acceptance criteria
 
-1. Fake-capture unit tests: frames in → SSE out, ordered per rid;
-   two concurrent subscribers get identical streams.
-2. e2e (vLLM CPU stack from [[013-inengine-capture]]): a streamed chat
-   completion's rid yields live SSE frames while tokens are still
-   generating; `/jspace/requests` lists it.
-3. `/metrics` exposes all four metric families with correct values on
-   a synthetic frame sequence (golden test).
-4. Watchlist tokenization: multi-token entries aggregate first-token
-   mass; unknown tokens rejected at manifest validation (unit tests).
-5. Socket absent / capture disabled: all `/jspace/*` endpoints return
-   an explicit "lens disabled" state; proxying unaffected (test).
-6. Ring overflow under a 10k-token request drops oldest frames without
-   unbounded memory (test asserts bound).
+1. Fake-publisher unit tests: frames in → SSE out, ordered per rid;
+   two concurrent subscribers receive identical streams; late
+   subscriber gets the ring replay.
+2. Every chat response (proxied and intercepted paths, streaming and
+   not) carries `X-Request-Id` (httptest against a fake engine).
+3. e2e (extends the [[013-inengine-capture]] vLLM CPU run): the rid
+   from a streamed completion's response header yields live SSE
+   frames while tokens are still generating; `/jspace/requests` lists
+   it.
+4. `/metrics` exposes all four families with correct values on a
+   synthetic frame sequence (golden test), alongside the engine
+   passthrough + weights gauge.
+5. Lens disabled: `/jspace/*` returns the explicit disabled state;
+   `ServeHTTP` proxy behavior byte-identical to today (regression
+   test).
+6. A 10k-frame rid stays within the 512-frame ring bound; hub memory
+   bounded under 100 concurrent rids (test).
+7. Publisher disconnect/reconnect mid-request: stream resumes, drop
+   counter reflects the gap (test).
 
 ## Non-goals
 
-- Cross-node aggregation and alert rules (Grafana/alerting config is
-  [[015-jspace-dashboard]]).
-- Persistence of frames beyond the in-memory ring (transcript
-  archival is a future spec if needed).
+- Cross-node aggregation, alert rules, UI
+  ([[015-jspace-dashboard]]).
+- Frame persistence beyond the in-memory ring (archival is a future
+  spec if needed).
 - AuthN/AuthZ beyond network scoping (gateway concern).
 
 ## Verification
 
-- CI: unit + golden metric tests per PR; the [[013-inengine-capture]]
-  vLLM CPU e2e extended with SSE + metrics assertions.
+- CI: unit + golden metric tests per PR (coverage counts toward the
+  `make cover` ≥90% gate); the vLLM CPU e2e extended with SSE +
+  metrics assertions.

@@ -7,6 +7,7 @@ depends_on:
 affects:
   - lens/
   - e2e/local/
+  - Makefile
 effort: medium
 created: 2026-07-22
 updated: 2026-07-22
@@ -18,11 +19,12 @@ dispatched_task_id: null
 
 ## Overview
 
-First Python code in this repo: a package (`lens/`, distributed as
-`openllms-jlens`) that fits a **Jacobian lens** for a model+revision and
-publishes the result as a versioned artifact next to the frozen weights
-in S3. The lens is the offline half of real-time jspace monitoring
-([[013-inengine-capture]] is the online half): a per-layer linear map
+First Python code in this repo: `lens/` (package `openllms-jlens`,
+managed with `uv` like `e2e/local/.venv`) fits a **Jacobian lens** for
+a model+revision and publishes it as a versioned artifact next to the
+frozen weights in S3. The lens is the offline half of real-time jspace
+monitoring ([[013-inengine-capture]] is the online half): a per-layer
+linear map
 
 ```
 lens_l(h) = unembed(J_l @ h),   J_l = E[∂h_final / ∂h_l]
@@ -32,75 +34,119 @@ that transports residual-stream activations at layer *l* into the
 final-layer basis so the unembedding can decode what the model is
 "lined up to say" mid-computation. Reference: Anthropic's
 [jacobian-lens](https://github.com/anthropics/jacobian-lens) (Apache
-2.0, reference implementation of "Verbalizable Representations Form a
-Global Workspace in Language Models"). We reimplement the estimator
-(cotangents summed over target positions, averaged over source
-positions, over a small prompt corpus) in our package rather than
-depending on the unmaintained repo; a converter imports jlens-fitted
-`.pt` files.
+2.0; "Verbalizable Representations Form a Global Workspace in Language
+Models"). We reimplement the estimator (cotangents summed over target
+positions, averaged over source positions and prompts) rather than
+depending on the unmaintained repo; a converter imports jlens `.pt`
+files.
 
-Fitting cost is dominated by backward passes and saturates at
-~100–1000 prompts. This spec covers small/mid dense models only —
-enough to prove the whole pipeline on the [[011-local-e2e]] stack.
-Fleet-scale MoE fitting is [[016-bigmodel-lens-fitting]].
+Fitting cost is backward-pass-dominated and saturates at ~100–1000
+prompts. This spec covers small/mid dense models — enough to prove the
+pipeline on the [[011-local-e2e]] stack (Qwen3-0.6B @
+`c1899de289a04d12100db370d81485cdf75e47ca`). Fleet MoE fitting is
+[[016-bigmodel-lens-fitting]].
+
+## Package layout
+
+```
+lens/
+  pyproject.toml           # uv-managed; python 3.12; entry point: jlens
+  src/openllms_jlens/
+    fitting.py             # VJP estimator, merge, checkpointing
+    artifact.py            # save/load/verify (safetensors + lens.json)
+    convert.py             # upstream jacobian-lens .pt importer
+    cli.py                 # jlens fit|merge|verify|upload
+  tests/                   # pytest; tiny fixture model (2-layer toy)
+```
+
+`capture/` is added by [[013-inengine-capture]]; one package, two
+subsystems, so fit-time and serve-time code share `artifact.py`.
 
 ## Components
 
-1. **Estimator** (`lens/fitting/`) — accumulates `J_l` per monitored
-   layer via VJPs on a prompt corpus. Layer selection is a stride/list
-   (default: every 4th layer + final). Deterministic given corpus +
-   seed; supports fitting disjoint corpus slices and `merge()`ing.
-2. **Low-rank truncation** — at save time each `J_l` is
-   SVD-truncated to rank *r* (default 256): stored as `U_l (d×r)`,
-   `V_l (r×d)`. This is what makes serving-time VRAM affordable
-   (10–40 MB/layer instead of `d²`). Full-rank save is a debug flag.
-3. **Artifact format** — `safetensors` (no pickle in serving) plus
-   metadata:
+1. **Estimator** (`fitting.py`) — accumulates `J_l` per monitored
+   layer via VJPs over a prompt corpus (JSONL, one prompt per line;
+   corpus sha256 recorded). Layer selection `--layers stride:4`
+   (default: every 4th + final) or an explicit list. Deterministic
+   given corpus + seed. Supports fitting disjoint corpus slices and
+   `merge()`ing (weighted mean by prompt count). Checkpoints
+   accumulation every N prompts (`--checkpoint out/ckpt.pt`).
+2. **Folded low-rank factors** — at save time each `J_l` is
+   SVD-truncated to rank *r* (default 256) and the unembedding is
+   folded in:
+
+   ```
+   J_l ≈ U_l V_l           # U_l: d×r,  V_l: r×d
+   A_l = W_U @ U_l         # V×r  (W_U = tied/lm_head unembedding)
+   lens_l(h) = A_l @ (V_l @ h)
+   ```
+
+   Storing `(A_l, V_l)` instead of `(U_l, V_l)` is deliberate: the
+   serving-side applier ([[013-inengine-capture]]) never has to locate
+   the engine's (sharded) `lm_head`, and per-token apply cost drops
+   from `d×V` to `r×(d+V)` MACs (~100× at d≈4k, r=256). Size:
+   ~80 MB/layer fp16 at V=150k — acceptable next to multi-GB weights.
+   `--full-rank` additionally saves raw `J_l` for debugging.
+3. **Artifact format** — safetensors (no pickle in serving) +
+   self-describing metadata:
 
    ```
    s3://<s3_prefix>/_lens/
-     lens-r256.safetensors        # U_l, V_l per layer
-     lens.json                    # model, revision, layers, rank,
-                                  # d_model, corpus sha256, fit config,
-                                  # per-tensor sha256, package version
+     lens-r256.safetensors    # A_l, V_l per monitored layer
+     lens.json                # hf_repo, revision, layers, rank, d_model,
+                              # vocab_size, corpus sha256, seed, fit
+                              # config, per-tensor sha256, pkg version
    ```
 
-   The artifact lives under the model's frozen `s3_prefix`, so
-   [[003-serving-runtime]]'s existing weight prep (s5cmd sync +
-   hash verification) fetches it with zero new machinery.
-4. **CLI** — `jlens fit --model <hf-or-local-dir> --prompts <file>
-   --layers stride:4 --rank 256 --out <dir>`; `jlens merge`;
-   `jlens verify <dir>`; `jlens upload --manifest models/<name>.yaml`.
-5. **Verify** — sanity gates before upload: (a) final-layer lens
-   top-1 agrees with model logits on ≥95% of held-out positions
-   (final-layer Jacobian ≈ identity); (b) mid-layer readouts are
-   non-degenerate (entropy within bounds, not collapsed to one token).
+   Note: `_manifest.json` is written at `mirror push` time and is
+   frozen — lens files are deliberately **not** added to it. The
+   artifact is self-verifying via `lens.json` hashes; the runtime
+   fetches it in a separate prep step ([[013-inengine-capture]]'s
+   `PrepareLens`, reusing `ensureFile`-style verify from
+   `internal/runtime/prep.go`).
+4. **CLI** —
+   - `jlens fit --model <hf-or-local-dir> --prompts corpus.jsonl
+     --layers stride:4 --rank 256 --seed 0 --out <dir>`
+   - `jlens merge <dir>... --out <dir>`
+   - `jlens verify <dir> --model <dir>` (gates below)
+   - `jlens upload <dir> --manifest models/<name>.yaml` (s5cmd-style
+     put to `<s3_prefix>/_lens/`; refuses if `lens.json` model/revision
+     disagree with the manifest)
+5. **Verify gates** (run before upload): (a) final-layer lens top-1
+   agrees with model logits on ≥95% of held-out positions (final-layer
+   Jacobian ≈ identity, so this checks the whole save/fold/load path);
+   (b) mid-layer readouts non-degenerate (mean top-k entropy within
+   configured bounds, no single-token collapse).
 
 ## Acceptance criteria
 
-1. `jlens fit` on Qwen3-0.6B (the [[011-local-e2e]] model) completes
-   on a laptop (CPU/MPS) in minutes on a 100-prompt corpus and
-   produces a loadable artifact.
+1. `jlens fit` on Qwen3-0.6B completes on a laptop (CPU/MPS) in
+   minutes on a 100-prompt corpus and produces a loadable artifact.
 2. `jlens verify` passes on that artifact; a corrupted tensor is
    detected via `lens.json` hashes (test).
 3. Merging two disjoint 50-prompt fits equals a single 100-prompt fit
-   within tolerance (test).
+   within tolerance (test); a killed fit resumes from checkpoint
+   losing at most N prompts (test).
 4. `jlens upload` places the artifact under the manifest's
-   `s3_prefix/_lens/` in MinIO; e2e/local asserts the runtime's weight
-   sync fetches it alongside weights.
-5. Converter loads an upstream jacobian-lens `.pt` and re-saves in our
-   format; `verify` passes (test with a tiny fixture).
-6. Unit coverage ≥90% for `lens/fitting/`.
+   `s3_prefix/_lens/` in MinIO (e2e/local extension); model/revision
+   mismatch refuses (test).
+5. Converter imports an upstream jacobian-lens `.pt` fixture,
+   re-saves folded factors, `verify` passes (test).
+6. Same corpus + seed ⇒ byte-identical `lens.json` tensor hashes
+   across two runs (determinism test).
+7. `make test-lens` (pytest + coverage) gates ≥90% for
+   `src/openllms_jlens/` fit-side modules, wired into CI beside the Go
+   `cover` target.
 
 ## Non-goals
 
-- Serving-time capture/apply ([[013-inengine-capture]]).
+- Serving-time capture/apply and `PrepareLens`
+  ([[013-inengine-capture]]).
 - Fitting fleet MoE models ([[016-bigmodel-lens-fitting]]).
-- Lens quality research (rank/corpus ablations beyond the verify
-  gates).
+- Lens quality research beyond the verify gates.
 
 ## Verification
 
-- CI: unit tests + the Qwen3-0.6B fit as part of `e2e/local` (CPU,
-  zero-cost). Artifact determinism asserted by hash across two runs
-  with the same seed.
+- CI: `make test-lens` per PR; the Qwen3-0.6B fit + upload runs as a
+  step in `e2e/local/run.sh` (CPU, zero-cost), reusing its venv/MinIO
+  bootstrap.
