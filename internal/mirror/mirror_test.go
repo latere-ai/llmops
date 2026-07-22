@@ -189,6 +189,49 @@ func TestPushIdempotent(t *testing.T) {
 	}
 }
 
+// TestPushReplacesSameSizeDivergentObject pins content, not size, as the
+// identity of a stored object. A stored object whose bytes diverge from
+// the manifest at identical length must be re-uploaded: Push is the only
+// repair path, so skipping it leaves the mirror permanently failing
+// verify with no command that can fix it.
+func TestPushReplacesSameSizeDivergentObject(t *testing.T) {
+	m, _ := newMirror(t, testFiles)
+	dir := t.TempDir()
+	sha, entries, err := m.Pull(context.Background(), "acme/tiny", "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const target = "model-00001-of-00002.safetensors"
+	root := t.TempDir()
+	store := &LocalStore{Root: root}
+	// Pre-seed divergent bytes of identical length ("weights-part-one").
+	if err := os.WriteFile(filepath.Join(root, target), []byte("WEIGHTS-PART-XXX"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Push("acme/tiny", sha, dir, entries, store); err != nil {
+		t.Fatal(err)
+	}
+
+	var want string
+	for _, e := range entries {
+		if e.Path == target {
+			want = e.SHA256
+		}
+	}
+	got, err := store.SHA256(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("stale object survived push: sha256 %s, want %s", got, want)
+	}
+	if err := m.Verify(store); err != nil {
+		t.Fatalf("verify after push: %v", err)
+	}
+}
+
 type countingStore struct {
 	Store
 	puts int

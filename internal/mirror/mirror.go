@@ -115,16 +115,28 @@ func verifyLocal(dir string, tree []TreeFile) ([]FileEntry, error) {
 }
 
 // Push uploads dir to the store and writes _manifest.json last.
-// Idempotent: files already present with matching size are skipped.
+// Idempotent: files already present with matching size and content are
+// skipped. Content is the identity, not size: Push is the repair path,
+// so a size-only match would make a same-size-divergent object
+// unreplaceable and leave the mirror permanently failing verify.
 func (m *Mirror) Push(repo, sha, dir string, files []FileEntry, store Store) error {
 	var total int64
 	for _, f := range files {
 		total += f.Size
-		if size, err := store.Size(f.Path); err != nil {
+		size, err := store.Size(f.Path)
+		if err != nil {
 			return err
-		} else if size == f.Size {
-			m.logf("push: %s already present, skipping", f.Path)
-			continue
+		}
+		if size == f.Size {
+			sum, err := store.SHA256(f.Path)
+			if err != nil {
+				return err
+			}
+			if sum == f.SHA256 {
+				m.logf("push: %s already present, skipping", f.Path)
+				continue
+			}
+			m.logf("push: %s present but content differs, replacing", f.Path)
 		}
 		m.logf("push: %s (%d bytes)", f.Path, f.Size)
 		if err := store.Put(filepath.Join(dir, f.Path), f.Path); err != nil {
