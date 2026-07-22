@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,8 +17,10 @@ import (
 const testSHA = "0123456789abcdef0123456789abcdef01234567"
 
 // fakeHub serves the two HF API endpoints Mirror uses, backed by an
-// in-memory file map.
-func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]bool) *HFClient {
+// in-memory file map. pageSize > 0 splits the tree response into cursor
+// pages linked by a `Link: <…>; rel="next"` header, the way the real Hub
+// paginates; pageSize <= 0 returns the whole tree in one response.
+func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]bool, pageSize int) *HFClient {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/models/"+repo, func(w http.ResponseWriter, r *http.Request) {
@@ -26,16 +30,46 @@ func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]
 		json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
 	})
 	mux.HandleFunc("/api/models/"+repo+"/tree/"+testSHA, func(w http.ResponseWriter, r *http.Request) {
+		// Deterministic order: map iteration is random, and cursor
+		// paging is only coherent over a stable sequence.
+		paths := make([]string, 0, len(files))
+		for path := range files {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
 		var tree []map[string]any
-		for path, content := range files {
-			entry := map[string]any{"type": "file", "path": path, "size": len(content)}
+		for _, path := range paths {
+			entry := map[string]any{"type": "file", "path": path, "size": len(files[path])}
 			if lfs[path] {
-				sum := sha256Hex(content)
+				sum := sha256Hex(files[path])
 				entry["lfs"] = map[string]any{"oid": "sha256:" + sum}
 			}
 			tree = append(tree, entry)
 		}
 		tree = append(tree, map[string]any{"type": "directory", "path": "subdir", "size": 0})
+
+		if pageSize > 0 {
+			offset := 0
+			if c := r.URL.Query().Get("cursor"); c != "" {
+				n, err := strconv.Atoi(c)
+				if err != nil {
+					http.Error(w, "bad cursor", http.StatusBadRequest)
+					return
+				}
+				offset = n
+			}
+			if offset > len(tree) {
+				offset = len(tree)
+			}
+			end := offset + pageSize
+			if end >= len(tree) {
+				end = len(tree)
+			} else {
+				next := "http://" + r.Host + r.URL.Path + "?recursive=true&cursor=" + strconv.Itoa(end)
+				w.Header().Set("Link", "<"+next+`>; rel="next"`)
+			}
+			tree = tree[offset:end]
+		}
 		json.NewEncoder(w).Encode(tree)
 	})
 	srv := httptest.NewServer(mux)
@@ -94,7 +128,7 @@ func newMirror(t *testing.T, files map[string]string) (*Mirror, *fakeDownloader)
 		"model-00002-of-00002.safetensors": true,
 	}
 	dl := &fakeDownloader{files: files}
-	return &Mirror{HF: fakeHub(t, "acme/tiny", files, lfs), Cmd: dl, Log: os.Stderr}, dl
+	return &Mirror{HF: fakeHub(t, "acme/tiny", files, lfs, 2), Cmd: dl, Log: os.Stderr}, dl
 }
 
 func TestPullPushVerifyE2E(t *testing.T) {
@@ -218,7 +252,7 @@ func TestPullDownloadFailure(t *testing.T) {
 func TestPullCorruptedDownload(t *testing.T) {
 	files := map[string]string{"model.safetensors": "good-weights"}
 	lfs := map[string]bool{"model.safetensors": true}
-	hub := fakeHub(t, "acme/tiny", files, lfs)
+	hub := fakeHub(t, "acme/tiny", files, lfs, 2)
 	// Downloader writes different content than the tree advertises.
 	dl := &fakeDownloader{files: map[string]string{"model.safetensors": "bad-weights!"}}
 	m := &Mirror{HF: hub, Cmd: dl}
@@ -269,6 +303,72 @@ func TestTreeEmpty(t *testing.T) {
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
 	if _, err := c.Tree("acme/tiny", testSHA); err == nil {
 		t.Fatal("empty tree must error")
+	}
+}
+
+// TestTreeFollowsPagination pins the Hub's cursor paging: a tree larger
+// than one page must be assembled from every page, not just the first.
+// A truncated tree is silently self-consistent downstream (manifest,
+// verify, policy all see the same short list), so it can only be caught
+// here.
+func TestTreeFollowsPagination(t *testing.T) {
+	files := map[string]string{
+		"a.safetensors": "aaaa",
+		"b.safetensors": "bbbb",
+		"c.safetensors": "cccc",
+		"d.safetensors": "dddd",
+	}
+	c := fakeHub(t, "acme/tiny", files, nil, 2)
+	got, err := c.Tree("acme/tiny", testSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(files) {
+		t.Fatalf("Tree returned %d files, want %d", len(got), len(files))
+	}
+	seen := map[string]bool{}
+	for _, f := range got {
+		seen[f.Path] = true
+	}
+	for path := range files {
+		if !seen[path] {
+			t.Errorf("Tree dropped %s", path)
+		}
+	}
+}
+
+// TestTreeRejectsCrossHostPagination pins the trust boundary: the next
+// URL is server-supplied, so following it off the configured Base host
+// would let a compromised or spoofed response redirect metadata fetches.
+func TestTreeRejectsCrossHostPagination(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", `<http://evil.example/api/models/acme/tiny/tree/x?cursor=2>; rel="next"`)
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"type": "file", "path": "a.safetensors", "size": 4},
+		})
+	}))
+	defer srv.Close()
+	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
+	if _, err := c.Tree("acme/tiny", testSHA); err == nil ||
+		!strings.Contains(err.Error(), "host") {
+		t.Fatalf("cross-host next link not rejected: %v", err)
+	}
+}
+
+// TestTreeCapsPageCount pins the loop bound: a server that always
+// advertises another page must not hang the client forever.
+func TestTreeCapsPageCount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", "<http://"+r.Host+"/api/models/acme/tiny/tree/x?cursor=1>; rel=\"next\"")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"type": "file", "path": "a.safetensors", "size": 4},
+		})
+	}))
+	defer srv.Close()
+	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
+	if _, err := c.Tree("acme/tiny", testSHA); err == nil ||
+		!strings.Contains(err.Error(), "too many pages") {
+		t.Fatalf("unbounded pagination not capped: %v", err)
 	}
 }
 
@@ -402,7 +502,7 @@ func TestGetJSONDecodeError(t *testing.T) {
 }
 
 func TestResolveWithRevision(t *testing.T) {
-	c := fakeHub(t, "acme/tiny", testFiles, nil)
+	c := fakeHub(t, "acme/tiny", testFiles, nil, 0)
 	sha, err := c.Resolve("acme/tiny", "main")
 	if err != nil || sha != testSHA {
 		t.Fatalf("Resolve with revision = %s, %v", sha, err)
@@ -435,7 +535,7 @@ func TestPullIncompleteDownload(t *testing.T) {
 	// Downloader omits one advertised file entirely, and writes another
 	// with the wrong size.
 	files := map[string]string{"a.safetensors": "aaaa", "b.safetensors": "bbbb"}
-	hub := fakeHub(t, "acme/tiny", files, nil)
+	hub := fakeHub(t, "acme/tiny", files, nil, 2)
 	dl := &fakeDownloader{files: map[string]string{"a.safetensors": "aa-too-long"}}
 	m := &Mirror{HF: hub, Cmd: dl}
 	_, _, err := m.Pull(context.Background(), "acme/tiny", "", t.TempDir())
