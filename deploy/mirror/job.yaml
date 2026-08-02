@@ -3,7 +3,8 @@
 #
 # Per-model usage: substitute MODEL_REPO/MODEL_SHA (or kustomize-patch
 # args) and apply. The scratch volume must exceed the model's disk size
-# (up to 1.6 TB for DeepSeek-V4-Pro-Base; see specs/002 size table).
+# (see specs/002 size table) — the 700Gi below covers everything except
+# Kimi-K3, which is 1561 GB and needs the request raised to ≥1700Gi.
 #
 # Prerequisites (blocking, decided outside this repo):
 #   - the bucket: dedicated `latere-models` (S3 or DO Spaces — s5cmd
