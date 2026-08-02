@@ -64,9 +64,33 @@ func validateOne(m *manifest.Manifest, path string) error {
 		return fmt.Errorf("leaderWorkerTemplate.size %v, want gpu.nodes %d", size, m.GPU.Nodes)
 	}
 
-	containers, _ := dig(lws, "spec", "leaderWorkerTemplate", "leaderTemplate", "spec", "containers").([]any)
+	if err := validateContainer(m, lws, "leaderTemplate", true); err != nil {
+		return err
+	}
+	// Above one node, LWS runs the extra nodes from workerTemplate. Its
+	// container carries the same engine image and the same per-node GPU
+	// count as the leader's — an unchecked worker is a rank that either
+	// never joins the group or joins with the wrong weights
+	// (specs/018 AC3). Probes are leader-only: only rank 0 serves HTTP,
+	// so the worker has no /ready to answer.
+	if m.GPU.Nodes > 1 {
+		if dig(lws, "spec", "leaderWorkerTemplate", "workerTemplate") == nil {
+			return fmt.Errorf("gpu.nodes %d requires a workerTemplate", m.GPU.Nodes)
+		}
+		if err := validateContainer(m, lws, "workerTemplate", false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateContainer checks one of the LWS pod templates against the
+// model manifest: engine image and GPU count, plus the health contract
+// when the template serves HTTP.
+func validateContainer(m *manifest.Manifest, lws map[string]any, template string, probes bool) error {
+	containers, _ := dig(lws, "spec", "leaderWorkerTemplate", template, "spec", "containers").([]any)
 	if len(containers) == 0 {
-		return fmt.Errorf("no containers in leaderTemplate")
+		return fmt.Errorf("no containers in %s", template)
 	}
 	c, _ := containers[0].(map[string]any)
 
@@ -74,24 +98,27 @@ func validateOne(m *manifest.Manifest, path string) error {
 	switch m.Runtime {
 	case manifest.RuntimeCustom:
 		if image != m.Image {
-			return fmt.Errorf("image %q, want manifest image %q", image, m.Image)
+			return fmt.Errorf("%s image %q, want manifest image %q", template, image, m.Image)
 		}
 	default:
 		if !strings.Contains(image, "open-llms-runtime-"+m.Runtime) {
-			return fmt.Errorf("image %q does not match runtime %q", image, m.Runtime)
+			return fmt.Errorf("%s image %q does not match runtime %q", template, image, m.Runtime)
 		}
 	}
 
 	gpus := fmt.Sprint(dig(c, "resources", "limits", "nvidia.com/gpu"))
 	if gpus != fmt.Sprint(m.GPU.Count) {
-		return fmt.Errorf("nvidia.com/gpu %q, want %d", gpus, m.GPU.Count)
+		return fmt.Errorf("%s nvidia.com/gpu %q, want %d", template, gpus, m.GPU.Count)
 	}
 
+	if !probes {
+		return nil
+	}
 	if p, _ := dig(c, "readinessProbe", "httpGet", "path").(string); p != "/ready" {
-		return fmt.Errorf("readinessProbe path %q, want /ready", p)
+		return fmt.Errorf("%s readinessProbe path %q, want /ready", template, p)
 	}
 	if p, _ := dig(c, "livenessProbe", "httpGet", "path").(string); p != "/healthz" {
-		return fmt.Errorf("livenessProbe path %q, want /healthz", p)
+		return fmt.Errorf("%s livenessProbe path %q, want /healthz", template, p)
 	}
 	return nil
 }

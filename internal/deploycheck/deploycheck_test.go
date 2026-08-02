@@ -136,6 +136,124 @@ func TestValidateFailures(t *testing.T) {
 	}
 }
 
+// writeMultiNodeModel writes a manifest with gpu.nodes = 2 — the shape
+// specs/018 keeps in reserve as Kimi-K3's H200 fallback.
+func writeMultiNodeModel(t *testing.T, dir, name string) {
+	t.Helper()
+	writeModel(t, dir, name, "sglang", "")
+	p := filepath.Join(dir, name+".yaml")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := strings.Replace(string(data), "nodes: 1", "nodes: 2", 1)
+	if err := os.WriteFile(p, []byte(out), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// multiNodeLWS is a 2-node group; worker holds the same image and GPU
+// count as the leader but serves no HTTP, so it carries no probes.
+func multiNodeLWS(name, leaderImage, workerImage, workerGPUs string) string {
+	return `apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: ` + name + `
+spec:
+  leaderWorkerTemplate:
+    size: 2
+    leaderTemplate:
+      spec:
+        containers:
+          - name: runtime
+            image: ` + leaderImage + `
+            resources:
+              limits:
+                nvidia.com/gpu: "8"
+            readinessProbe:
+              httpGet: {path: /ready, port: 8000}
+            livenessProbe:
+              httpGet: {path: /healthz, port: 8000}
+    workerTemplate:
+      spec:
+        containers:
+          - name: runtime
+            image: ` + workerImage + `
+            resources:
+              limits:
+                nvidia.com/gpu: "` + workerGPUs + `"
+`
+}
+
+func TestValidateMultiNode(t *testing.T) {
+	const good = "ghcr.io/latere-ai/open-llms-runtime-sglang:v0.1.0"
+
+	t.Run("consistent worker passes", func(t *testing.T) {
+		models, deploy := t.TempDir(), t.TempDir()
+		writeMultiNodeModel(t, models, "big")
+		writeLWS(t, deploy, "big", multiNodeLWS("big", good, good, "8"))
+		if err := Validate(models, deploy); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	cases := []struct {
+		name string
+		lws  string
+		want string
+	}{
+		{
+			"worker missing entirely",
+			// Group size says 2 nodes, but only the leader is defined:
+			// the second rank never starts.
+			strings.Replace(goodLWS("big", good, "8"), "size: 1", "size: 2", 1),
+			"requires a workerTemplate",
+		},
+		{
+			"worker on the wrong engine image",
+			multiNodeLWS("big", good, "ghcr.io/latere-ai/open-llms-runtime-vllm:v0.1.0", "8"),
+			"workerTemplate image",
+		},
+		{
+			"worker short on GPUs",
+			multiNodeLWS("big", good, good, "4"),
+			"workerTemplate nvidia.com/gpu",
+		},
+		{
+			"worker has no containers",
+			strings.Replace(multiNodeLWS("big", good, good, "8"),
+				"    workerTemplate:\n      spec:\n        containers:", "    workerTemplate:\n      spec:\n        xcontainers:", 1),
+			"no containers in workerTemplate",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			models, deploy := t.TempDir(), t.TempDir()
+			writeMultiNodeModel(t, models, "big")
+			writeLWS(t, deploy, "big", tc.lws)
+			err := Validate(models, deploy)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+
+	// A single-node model is never asked for a worker, and a stray one
+	// is not the validator's business.
+	t.Run("single node ignores workerTemplate", func(t *testing.T) {
+		models, deploy := t.TempDir(), t.TempDir()
+		writeModel(t, models, "tiny", "sglang", "")
+		writeLWS(t, deploy, "tiny", strings.Replace(
+			multiNodeLWS("tiny", good, "ghcr.io/latere-ai/open-llms-runtime-vllm:v1", "4"), "size: 2", "size: 1", 1))
+		if err := Validate(models, deploy); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestValidateCustomImageMismatch(t *testing.T) {
 	models, deploy := t.TempDir(), t.TempDir()
 	writeModel(t, models, "ocr", "custom", "")
