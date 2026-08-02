@@ -142,15 +142,11 @@ func (s *Shim) chatCompletions(w http.ResponseWriter, r *http.Request) {
 // forward posts body to the engine and streams the response back,
 // flushing per chunk so SSE token streams are not buffered.
 func (s *Shim) forward(w http.ResponseWriter, r *http.Request, path string, body []byte) {
-	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		s.engine.String()+path, bytes.NewReader(body))
+	up, err := s.engineRequest(r, path, body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	up.Header = r.Header.Clone()
-	up.Header.Set("Content-Type", "application/json")
-	up.URL.RawQuery = r.URL.RawQuery
 	resp, err := s.inference.Do(up)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)
@@ -168,6 +164,18 @@ func (s *Shim) forward(w http.ResponseWriter, r *http.Request, path string, body
 		dst = flushWriter{w, fl}
 	}
 	io.Copy(dst, resp.Body)
+}
+
+func (s *Shim) engineRequest(r *http.Request, path string, body []byte) (*http.Request, error) {
+	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		s.engine.String()+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	up.Header = r.Header.Clone()
+	up.Header.Set("Content-Type", "application/json")
+	up.URL.RawQuery = r.URL.RawQuery
+	return up, nil
 }
 
 type flushWriter struct {
@@ -241,13 +249,11 @@ func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
 		return
 	}
-	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		s.engine.String()+"/v1/chat/completions", bytes.NewReader(out))
+	up, err := s.engineRequest(r, "/v1/chat/completions", out)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	up.Header.Set("Content-Type", "application/json")
 	resp, err := s.inference.Do(up)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)

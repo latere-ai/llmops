@@ -786,6 +786,42 @@ func TestSystemPromptInjectionAnthropicPath(t *testing.T) {
 	}
 }
 
+func TestAnthropicForwardPreservesCallerHeadersAndQuery(t *testing.T) {
+	var gotAuth, gotTrace, gotQuery string
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotTrace = r.Header.Get("X-Trace-Id")
+		gotQuery = r.URL.RawQuery
+		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	defer engine.Close()
+
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	req, err := http.NewRequest(http.MethodPost, front.URL+"/anthropic/v1/messages?trace=abc123",
+		strings.NewReader(`{"model":"tiny","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer caller-token")
+	req.Header.Set("X-Trace-Id", "trace-xyz")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if gotAuth != "Bearer caller-token" || gotTrace != "trace-xyz" || gotQuery != "trace=abc123" {
+		t.Fatalf("engine metadata = auth %q, trace %q, query %q", gotAuth, gotTrace, gotQuery)
+	}
+}
+
 func TestSystemPromptPassthroughWhenUnset(t *testing.T) {
 	// Without a system prompt the transparent proxy serves the OpenAI
 	// path (covered by TestShimContract); here: injection helper is a
