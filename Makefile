@@ -48,18 +48,21 @@ e2e:
 
 images:
 	docker build -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:dev .
+	docker build -f Dockerfile.sglang-k3 -t $(REGISTRY)/open-llms-runtime-sglang-k3:dev .
 	docker build -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:dev .
 	docker build -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:dev .
 
-# Versioned build + push of all three images (see DEPLOY.md).
+# Versioned build + push of all four images (see DEPLOY.md).
 # Usage: make release VERSION=v0.1.0 [REGISTRY=...]
 # (requires docker login against $(REGISTRY))
 release:
 	@test -n "$(VERSION)" || { echo "usage: make release VERSION=vX.Y.Z [REGISTRY=...]"; exit 1; }
 	docker build --platform linux/amd64 -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.sglang-k3 -t $(REGISTRY)/open-llms-runtime-sglang-k3:$(VERSION) .
 	docker build --platform linux/amd64 -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:$(VERSION) .
 	docker build --platform linux/amd64 -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:$(VERSION) .
 	docker push $(REGISTRY)/open-llms-runtime-sglang:$(VERSION)
+	docker push $(REGISTRY)/open-llms-runtime-sglang-k3:$(VERSION)
 	docker push $(REGISTRY)/open-llms-runtime-vllm:$(VERSION)
 	docker push $(REGISTRY)/open-llms-mirror:$(VERSION)
 
