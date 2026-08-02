@@ -1,0 +1,50 @@
+# Kimi-K3 — specs/018. 2.8T MoE, 104B active (16 of 896 experts),
+# MXFP4 weights / MXFP8 activations from QAT, native vision, 1M context.
+# 1561 GB — the largest thing in the registry, and more than doubles it.
+#
+# Shape: 8x B300 single node (2304 GB HBM, ~740 GB left over weights).
+# The fallback if the b300 pool slips is H200 2x8 TP16/EP16 — a
+# multi-node change, not a flag change (specs/018 hardware decision).
+#
+# LICENSE GATE (specs/018 AC0): the Kimi K3 License has a
+# Model-as-a-Service clause. It turns on whether Lux exposure counts as
+# internal use under §4(a), not on a revenue number. Determination NOT
+# yet recorded — blocking gate for Lux exposure.
+#
+# Runs on the K3-only runtime image (CUDA 13, r580+ driver), never the
+# shared sglang image. --moe-runner-backend and the three attention
+# backends stay unset on purpose: K3 resolves them as a set on Blackwell
+# and pinning any one cancels auto-resolution for the others.
+#
+# --mamba-full-memory-ratio divides the KDA state pool from the MLA KV
+# pool and is the one sizing flag. It is workload-dependent (specs/018
+# AC5): compute it from the vendor calculator against our measured
+# average request length and add it here, rather than guessing a default.
+name: kimi-k3
+hf_repo: moonshotai/Kimi-K3
+revision: 9f62e4e9fffbd0a83ddd60e1c209d828994b3569
+s3_prefix: s3://latere-models/moonshotai/Kimi-K3/9f62e4e9fffbd0a83ddd60e1c209d828994b3569/
+format: mxfp4-mxfp8
+license: kimi-k3
+license_note: >-
+  Kimi K3 License §2 requires a separate agreement with Moonshot AI
+  before commercial use if we operate a Model-as-a-Service business above
+  $20M revenue over any consecutive 12 months; §3 requires displaying
+  "Kimi K3" above 100M MAU or $20M monthly revenue; §4(a) exempts
+  internal use entirely. Whether serving K3 through Lux is internal use
+  is NOT yet determined — record the conclusion, its date, and its owner
+  here before any Lux route exists.
+runtime: sglang
+load: nvme-cache
+gpu: { type: b300, count: 8, nodes: 1 }
+context_max: 1048576
+args:
+  - --trust-remote-code
+  - --tp-size=8
+  - --dcp-size=8
+  - --mem-fraction-static=0.85
+  - --mm-feature-transport=cuda_ipc
+  - --mm-processor-worker-num=2
+  - --mm-io-worker-num=16
+  - --reasoning-parser=kimi_k3
+  - --tool-call-parser=kimi_k3

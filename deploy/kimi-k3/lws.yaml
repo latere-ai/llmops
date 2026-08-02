@@ -1,0 +1,73 @@
+# Kimi-K3 on one 8x B300 node (specs/018, specs/008).
+#
+# Blocked on two things this file cannot express: the b300 node pool does
+# not exist yet (../terraform), and the license determination in
+# models/kimi-k3.yaml is unrecorded. Apply neither until both land.
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: kimi-k3
+  namespace: open-llms
+  labels:
+    app.kubernetes.io/name: kimi-k3
+    app.kubernetes.io/part-of: open-llms
+spec:
+  replicas: 1
+  leaderWorkerTemplate:
+    size: 1
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      metadata:
+        labels:
+          app.kubernetes.io/name: kimi-k3
+      spec:
+        nodeSelector:
+          latere.ai/gpu-pool: b300
+        containers:
+          # K3-only image: CUDA 13, needs an r580+ driver on this pool.
+          - name: runtime
+            image: ghcr.io/latere-ai/open-llms-runtime-sglang-k3:v0.1.0
+            args: ["serve", "--manifest", "/etc/openllms/model.yaml"]
+            ports:
+              - containerPort: 8000
+                name: http
+            readinessProbe:
+              httpGet: { path: /ready, port: 8000 }
+              periodSeconds: 10
+              # 1561 GB of weights to stage, then vision-tower and decode
+              # graph capture on top. Cold start is the better part of an
+              # hour; warm restarts skip the fetch entirely.
+              failureThreshold: 360
+            livenessProbe:
+              httpGet: { path: /healthz, port: 8000 }
+              periodSeconds: 30
+            resources:
+              limits:
+                nvidia.com/gpu: "8"
+            volumeMounts:
+              - { name: model-manifest, mountPath: /etc/openllms }
+              - { name: cache, mountPath: /cache }
+              - { name: shm, mountPath: /dev/shm }
+        volumes:
+          - name: model-manifest
+            configMap: { name: kimi-k3-manifest }
+          - name: cache
+            hostPath: { path: /var/cache/openllms, type: DirectoryOrCreate }
+          - name: shm
+            # Larger than the 32Gi the other models take: multimodal
+            # feature transport falls back to host memory when the
+            # cuda_ipc pool fills.
+            emptyDir: { medium: Memory, sizeLimit: 64Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kimi-k3
+  namespace: open-llms
+spec:
+  selector:
+    app.kubernetes.io/name: kimi-k3
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
