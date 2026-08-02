@@ -47,6 +47,11 @@ it and records the decision.
 1. Hardware decision recorded here (which of the three shapes; or
    explicit deferral with V4-Flash substituted as an interim model —
    then a `models/deepseek-v4-flash.yaml` with its own smaller shape).
+   **Answered 2026-08-02: deferred.** The V4-Flash branch is taken and
+   lives in [[017-model-deepseek-v4-flash-0731]] — the 0731 refresh
+   (304B/13B, 166.9 GB, bundled DSpark draft head), on the b200 pool
+   this spec had earmarked for preference #1. Pro's own hardware
+   decision stays open; AC2 (mirror the weights anyway) still stands.
 2. `deepseek-ai/DeepSeek-V4-Pro` mirrored + verified in S3 (mirror now
    regardless of hardware timing — freezing weights is the point of this
    repo).
