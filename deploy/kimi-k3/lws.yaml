@@ -1,8 +1,12 @@
 # Kimi-K3 on one 8x B300 node (specs/018, specs/008).
 #
-# Blocked on two things this file cannot express: the b300 node pool does
-# not exist yet (../terraform), and the license determination in
-# models/kimi-k3.yaml is unrecorded. Apply neither until both land.
+# Blocked on three things this file cannot express: the b300 node pool
+# does not exist yet (../terraform), the license determination in
+# models/kimi-k3.yaml is unrecorded, and the manifest still carries no
+# --mamba-full-memory-ratio. That last one is the flag that divides the
+# KDA state pool from the MLA KV pool; without it the engine boots on a
+# default the vendor does not recommend (specs/018 AC5). All three land
+# before this is applied.
 apiVersion: leaderworkerset.x-k8s.io/v1
 kind: LeaderWorkerSet
 metadata:

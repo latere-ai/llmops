@@ -12,9 +12,16 @@
 # yet recorded — blocking gate for Lux exposure.
 #
 # Runs on the K3-only runtime image (CUDA 13, r580+ driver), never the
-# shared sglang image. --moe-runner-backend and the three attention
-# backends stay unset on purpose: K3 resolves them as a set on Blackwell
-# and pinning any one cancels auto-resolution for the others.
+# shared sglang image — deploycheck enforces the pairing both ways.
+# --moe-runner-backend and the three attention backends stay unset on
+# purpose: K3 resolves them as a set on Blackwell and pinning any one
+# cancels auto-resolution for the others.
+#
+# Operating point: the vendor's **B300 · Unified · Balanced** cell.
+# That is what --dcp-size=8 encodes — DCP is the only axis that shards
+# the TP-replicated MLA KV, and the Low-Latency cell skips it. Drop
+# --dcp-size to move to Low-Latency; name the cell in any benchmark so
+# AC8's re-measurement compares like with like.
 #
 # --mamba-full-memory-ratio divides the KDA state pool from the MLA KV
 # pool and is the one sizing flag. It is workload-dependent (specs/018

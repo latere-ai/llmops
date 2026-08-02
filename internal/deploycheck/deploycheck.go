@@ -101,8 +101,13 @@ func validateContainer(m *manifest.Manifest, lws map[string]any, template string
 			return fmt.Errorf("%s image %q, want manifest image %q", template, image, m.Image)
 		}
 	default:
-		if !strings.Contains(image, "open-llms-runtime-"+m.Runtime) {
-			return fmt.Errorf("%s image %q does not match runtime %q", template, image, m.Runtime)
+		// Compare the repository component exactly, not by substring:
+		// the registry prefix is the operator's to choose, but
+		// open-llms-runtime-sglang and open-llms-runtime-sglang-k3 are
+		// different engines and each contains the other's prefix.
+		if got, want := imageName(image), m.EngineImage(); got != want {
+			return fmt.Errorf("%s image %q does not match runtime %q: image name %q, want %q",
+				template, image, m.Runtime, got, want)
 		}
 	}
 
@@ -121,6 +126,20 @@ func validateContainer(m *manifest.Manifest, lws map[string]any, template string
 		return fmt.Errorf("%s livenessProbe path %q, want /healthz", template, p)
 	}
 	return nil
+}
+
+// imageName reduces an image reference to its repository component:
+// "nexus.example.com:5000/latere/open-llms-runtime-sglang:v1" becomes
+// "open-llms-runtime-sglang". Registry, port, tag, and digest all drop.
+func imageName(ref string) string {
+	name := ref
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if i := strings.IndexAny(name, ":@"); i >= 0 {
+		name = name[:i]
+	}
+	return name
 }
 
 func splitDocs(data []byte) ([]map[string]any, error) {

@@ -254,6 +254,104 @@ func TestValidateMultiNode(t *testing.T) {
 	})
 }
 
+// writeK3Model writes a manifest carrying Kimi-K3's hf_repo, which pins
+// the K3-only engine image (specs/018 AC4).
+func writeK3Model(t *testing.T, dir, name string) {
+	t.Helper()
+	writeModel(t, dir, name, "sglang", "")
+	p := filepath.Join(dir, name+".yaml")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := strings.ReplaceAll(string(data), "acme/tiny", "moonshotai/Kimi-K3")
+	out = strings.Replace(out, `args: ["--tp-size=8"]`,
+		`args: ["--tp-size=8", "--trust-remote-code"]`, 1)
+	if err := os.WriteFile(p, []byte(out), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The two SGLang images each contain the other's name as a substring,
+// and they are not interchangeable — K3 needs the CUDA 13 branch build,
+// and the shared image must not inherit its r580+ driver floor.
+func TestValidateEngineImageIsNotSubstringMatched(t *testing.T) {
+	const shared = "ghcr.io/latere-ai/open-llms-runtime-sglang:v0.1.0"
+	const k3 = "ghcr.io/latere-ai/open-llms-runtime-sglang-k3:v0.1.0"
+
+	cases := []struct {
+		name    string
+		write   func(*testing.T, string, string)
+		image   string
+		wantErr bool
+	}{
+		{"k3 model on the k3 image", writeK3Model, k3, false},
+		{"k3 model on the shared image", writeK3Model, shared, true},
+		{
+			"ordinary sglang model on the shared image",
+			func(t *testing.T, dir, name string) { writeModel(t, dir, name, "sglang", "") },
+			shared, false,
+		},
+		{
+			"ordinary sglang model on the k3 image",
+			func(t *testing.T, dir, name string) { writeModel(t, dir, name, "sglang", "") },
+			k3, true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			models, deploy := t.TempDir(), t.TempDir()
+			tc.write(t, models, "m")
+			writeLWS(t, deploy, "m", goodLWS("m", tc.image, "8"))
+			err := Validate(models, deploy)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if !strings.Contains(err.Error(), "does not match runtime") {
+					t.Fatalf("error %q does not mention the runtime mismatch", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	// The registry prefix stays the operator's choice.
+	t.Run("any registry prefix passes", func(t *testing.T) {
+		for _, image := range []string{
+			"open-llms-runtime-sglang:v1",
+			"nexus.example.com:5000/latere/open-llms-runtime-sglang:v1",
+			"123.dkr.ecr.eu-central-1.amazonaws.com/latere/open-llms-runtime-sglang@sha256:abc",
+		} {
+			models, deploy := t.TempDir(), t.TempDir()
+			writeModel(t, models, "m", "sglang", "")
+			writeLWS(t, deploy, "m", goodLWS("m", image, "8"))
+			if err := Validate(models, deploy); err != nil {
+				t.Errorf("image %q rejected: %v", image, err)
+			}
+		}
+	})
+}
+
+func TestImageName(t *testing.T) {
+	cases := map[string]string{
+		"open-llms-runtime-sglang":                     "open-llms-runtime-sglang",
+		"open-llms-runtime-sglang:v1":                  "open-llms-runtime-sglang",
+		"ghcr.io/latere-ai/open-llms-runtime-vllm:dev": "open-llms-runtime-vllm",
+		"nexus.example.com:5000/x/open-llms-mirror:v1": "open-llms-mirror",
+		"repo/name@sha256:deadbeef":                    "name",
+		"":                                             "",
+	}
+	for ref, want := range cases {
+		if got := imageName(ref); got != want {
+			t.Errorf("imageName(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
 func TestValidateCustomImageMismatch(t *testing.T) {
 	models, deploy := t.TempDir(), t.TempDir()
 	writeModel(t, models, "ocr", "custom", "")

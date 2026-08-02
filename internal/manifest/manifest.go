@@ -87,6 +87,27 @@ var requiredArgs = map[string][]string{
 // in-checkpoint DSpark draft head (specs/017).
 const specDSpark = "DSPARK"
 
+// engineImages overrides the default image name for models the engine's
+// shared image cannot serve. Kimi-K3 support ships in a CUDA 13 branch
+// build with an r580+ driver floor, so the K3 image and the shared
+// SGLang image are not substitutable in either direction (specs/018 AC4).
+var engineImages = map[string]string{
+	"moonshotai/Kimi-K3": "open-llms-runtime-sglang-k3",
+}
+
+// EngineImage is the image name a deploy must reference for this model,
+// without registry prefix or tag. Empty for runtime: custom, where the
+// manifest's own Image field is the contract.
+func (m *Manifest) EngineImage() string {
+	if m.Runtime == RuntimeCustom {
+		return ""
+	}
+	if img, ok := engineImages[m.HFRepo]; ok {
+		return img
+	}
+	return "open-llms-runtime-" + m.Runtime
+}
+
 // Parse decodes a manifest, rejecting unknown fields.
 func Parse(data []byte) (*Manifest, error) {
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
