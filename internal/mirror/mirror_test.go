@@ -284,6 +284,38 @@ func TestPolicyRejectsPickle(t *testing.T) {
 	}
 }
 
+func TestPolicyRejectsAllNonSafetensorsWeights(t *testing.T) {
+	for _, name := range []string{"model.gguf", "flax_model.msgpack", "model.onnx"} {
+		t.Run(name, func(t *testing.T) {
+			err := CheckPolicy([]TreeFile{{Path: name, Size: 100}})
+			if err == nil {
+				t.Fatalf("CheckPolicy(%q) accepted a non-safetensors weight", name)
+			}
+			if !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "safetensors-only") {
+				t.Fatalf("CheckPolicy(%q) returned unclear error: %v", name, err)
+			}
+		})
+	}
+}
+
+func TestPolicyAllowsSafetensorsAndNonWeightCompanions(t *testing.T) {
+	files := []TreeFile{
+		{Path: "model-00001-of-00002.safetensors"},
+		{Path: "model.safetensors.index.json"},
+		{Path: "config.json"},
+		{Path: "tokenizer.model"},
+		{Path: "chat_template.jinja"},
+		{Path: "modeling_custom.py"},
+		{Path: "figures/demo_video.mp4"},
+		{Path: "README.md"},
+		{Path: "LICENSE"},
+		{Path: ".gitattributes"},
+	}
+	if err := CheckPolicy(files); err != nil {
+		t.Fatalf("safe repository companions rejected: %v", err)
+	}
+}
+
 func TestPullDownloadFailure(t *testing.T) {
 	m, dl := newMirror(t, testFiles)
 	dl.fail = true

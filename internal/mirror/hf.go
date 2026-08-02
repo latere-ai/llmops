@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -177,21 +178,50 @@ func (c *HFClient) Tree(repo, sha string) ([]TreeFile, error) {
 	return files, nil
 }
 
-// forbiddenWeightExts is the safetensors-only policy (specs/002 AC3):
-// serialized-python and other mutable weight formats are rejected.
-var forbiddenWeightExts = map[string]bool{
-	".bin": true, ".pt": true, ".pth": true, ".pkl": true,
-	".pickle": true, ".ckpt": true, ".h5": true,
+// allowedMirrorExts makes the safetensors-only policy fail closed. New
+// weight formats cannot enter the frozen registry merely because their
+// extension was absent from a deny-list. Additions here must be formats
+// that cannot carry model weights.
+var allowedMirrorExts = map[string]bool{
+	// Model weights.
+	".safetensors": true,
+
+	// Config, documentation, metadata, and source code.
+	".bash": true, ".c": true, ".cc": true, ".cfg": true,
+	".conf": true, ".cpp": true, ".csv": true, ".cu": true,
+	".cuh": true, ".cxx": true, ".dockerignore": true,
+	".editorconfig": true, ".gitattributes": true, ".gitignore": true,
+	".gitmodules": true, ".h": true, ".hh": true, ".hpp": true,
+	".ini": true, ".jinja": true, ".jinja2": true, ".js": true,
+	".json": true, ".jsonl": true, ".lock": true, ".md": true,
+	".pdf": true, ".py": true, ".pyi": true, ".rst": true,
+	".sh": true, ".svg": true, ".toml": true, ".ts": true,
+	".tsv": true, ".txt": true, ".xml": true, ".yaml": true,
+	".yml": true,
+
+	// Tokenizer assets and model-card media.
+	".gif": true, ".jpeg": true, ".jpg": true, ".merges": true,
+	".model": true, ".mp4": true, ".png": true, ".spm": true,
+	".tiktoken": true, ".vocab": true, ".webp": true,
 }
 
-// CheckPolicy rejects trees containing forbidden weight formats.
+var allowedExtensionlessFiles = map[string]bool{
+	"authors": true, "citation": true, "code_of_conduct": true,
+	"contributors": true, "dockerfile": true, "license": true,
+	"makefile": true, "notice": true, "readme": true,
+	"security": true, "use_policy": true,
+}
+
+// CheckPolicy permits safetensors weights and known non-weight companions.
+// Unknown file types require explicit review before an immutable mirror is
+// created; this is intentionally a fail-closed allowlist (specs/002 AC3).
 func CheckPolicy(files []TreeFile) error {
 	for _, f := range files {
-		for ext := range forbiddenWeightExts {
-			if strings.HasSuffix(f.Path, ext) {
-				return fmt.Errorf("policy: %s violates safetensors-only weights policy", f.Path)
-			}
+		name := strings.ToLower(path.Base(f.Path))
+		if allowedMirrorExts[strings.ToLower(path.Ext(name))] || allowedExtensionlessFiles[name] {
+			continue
 		}
+		return fmt.Errorf("policy: %s violates safetensors-only weights policy: file type is not an approved non-weight companion", f.Path)
 	}
 	return nil
 }
