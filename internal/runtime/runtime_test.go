@@ -247,6 +247,30 @@ func TestShimMetricsEngineDown(t *testing.T) {
 	}
 }
 
+func TestShimMetricsOmitsEngineErrorBody(t *testing.T) {
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, "<html>503 Service Unavailable</html>")
+	}))
+	defer engine.Close()
+
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	shim.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "openllms_weights_load_seconds") {
+		t.Fatalf("runtime gauge missing: %d %q", rec.Code, body)
+	}
+	if strings.Contains(body, "<html>") || strings.Contains(body, "503 Service Unavailable") {
+		t.Fatalf("engine error body exposed as metrics: %d %q", rec.Code, body)
+	}
+}
+
 func TestNewShimBadURL(t *testing.T) {
 	if _, err := NewShim("://bad"); err == nil {
 		t.Fatal("bad URL must error")

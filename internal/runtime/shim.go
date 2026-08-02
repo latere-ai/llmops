@@ -285,7 +285,11 @@ func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 func (s *Shim) metrics(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	if resp, err := s.client.Get(s.engine.String() + "/metrics"); err == nil {
-		io.Copy(w, resp.Body)
+		if resp.StatusCode == http.StatusOK {
+			io.Copy(w, resp.Body)
+		} else {
+			io.Copy(io.Discard, resp.Body)
+		}
 		resp.Body.Close()
 	}
 	fmt.Fprintf(w, "# HELP openllms_weights_load_seconds Time spent preparing weights before engine start.\n")
