@@ -476,7 +476,10 @@ ls)
   *'*') found=0
      for f in $(find "${pat%\*}" -type f 2>/dev/null); do echo "2026/07/18 00:00:00 $(wc -c < "$f" | tr -d ' ') s3://bucket/${f#"$ROOT"/}"; found=1; done
      [ "$found" = 1 ] || exit 1 ;;
-  *) [ -f "$pat" ] || exit 1
+  *) if [ ! -f "$pat" ]; then
+       echo "ERROR \"ls $1\": no object found" >&2
+       exit 1
+     fi
      echo "2026/07/18 00:00:00 $(wc -c < "$pat" | tr -d ' ') s3://bucket/${pat#"$ROOT"/}" ;;
   esac
   ;;
@@ -520,6 +523,26 @@ esac
 	}
 	if err := s.Get("absent", out); err == nil {
 		t.Fatal("Get absent must error")
+	}
+}
+
+func TestS5cmdStoreSizePropagatesOperationalError(t *testing.T) {
+	bin := t.TempDir()
+	script := `#!/bin/sh
+echo 'ERROR "ls s3://bucket/x": InvalidAccessKeyId: invalid credentials' >&2
+exit 1
+`
+	if err := os.WriteFile(filepath.Join(bin, "s5cmd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	size, err := (&S5cmdStore{Prefix: "s3://bucket/"}).Size("x")
+	if err == nil {
+		t.Fatalf("Size returned (%d, nil) for an operational s5cmd failure", size)
+	}
+	if !strings.Contains(err.Error(), "InvalidAccessKeyId") {
+		t.Fatalf("Size error lost s5cmd cause: %v", err)
 	}
 }
 

@@ -134,13 +134,28 @@ func FileSHA256(path string) (string, error) {
 // carried by the same Mirror logic the LocalStore e2e covers.
 type S5cmdStore struct{ Prefix string }
 
+type s5cmdExitError struct {
+	command string
+	cause   error
+	stderr  []byte
+}
+
+func (e *s5cmdExitError) Error() string {
+	return fmt.Sprintf("s5cmd %s: %v: %s", e.command, e.cause, e.stderr)
+}
+
+func (e *s5cmdExitError) Unwrap() error { return e.cause }
+
 func (s *S5cmdStore) run(args ...string) ([]byte, error) {
 	out, err := exec.Command("s5cmd", args...).Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("s5cmd %s: %w: %s",
-				strings.Join(args, " "), err, bytes.TrimSpace(ee.Stderr))
+			return nil, &s5cmdExitError{
+				command: strings.Join(args, " "),
+				cause:   err,
+				stderr:  bytes.TrimSpace(ee.Stderr),
+			}
 		}
 		return nil, fmt.Errorf("s5cmd %s: %w", strings.Join(args, " "), err)
 	}
@@ -174,8 +189,12 @@ func (s *S5cmdStore) List() ([]string, error) {
 
 func (s *S5cmdStore) Size(remote string) (int64, error) {
 	out, err := s.run("ls", s.Prefix+remote)
-	if err != nil { // s5cmd ls errors on missing key
-		return -1, nil
+	if err != nil {
+		var exitErr *s5cmdExitError
+		if errors.As(err, &exitErr) && strings.HasSuffix(string(exitErr.stderr), ": no object found") {
+			return -1, nil
+		}
+		return -1, err
 	}
 	fields := strings.Fields(strings.TrimSpace(string(out)))
 	if len(fields) < 3 {
