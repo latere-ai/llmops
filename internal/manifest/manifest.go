@@ -73,11 +73,19 @@ var (
 )
 
 // requiredArgs pins flags a model cannot legally run without
-// (specs/006-model-minimax-m3.md AC2: MSA needs --block-size 128).
+// (specs/006-model-minimax-m3.md AC2: MSA needs --block-size 128;
+// specs/017 AC2 and specs/018 AC2: both checkpoints ship custom modeling
+// code via auto_map and never load without --trust-remote-code).
 var requiredArgs = map[string][]string{
-	"MiniMaxAI/MiniMax-M3":       {"--block-size=128"},
-	"MiniMaxAI/MiniMax-M3-MXFP8": {"--block-size=128"},
+	"MiniMaxAI/MiniMax-M3":               {"--block-size=128"},
+	"MiniMaxAI/MiniMax-M3-MXFP8":         {"--block-size=128"},
+	"moonshotai/Kimi-K3":                 {"--trust-remote-code"},
+	"deepseek-ai/DeepSeek-V4-Flash-0731": {"--trust-remote-code"},
 }
+
+// specDSpark is the value of --speculative-algorithm that selects the
+// in-checkpoint DSpark draft head (specs/017).
+const specDSpark = "DSPARK"
 
 // Parse decodes a manifest, rejecting unknown fields.
 func Parse(data []byte) (*Manifest, error) {
@@ -185,6 +193,7 @@ func (m *Manifest) Validate() error {
 			fail("hf_repo %s requires arg %s", m.HFRepo, req)
 		}
 	}
+	m.validateDSpark(fail)
 	if sp := m.SystemPrompt; sp != nil {
 		switch sp.Mode {
 		case SystemPromptDefault, SystemPromptPrepend, SystemPromptOverride:
@@ -218,6 +227,48 @@ func (m *Manifest) validateS3Prefix() error {
 		return fmt.Errorf("s3_prefix key %q must be %q (hf_repo/revision/)", key, want)
 	}
 	return nil
+}
+
+// validateDSpark enforces the constraints SGLang places on the
+// in-checkpoint DSpark draft head (specs/017). Each one is silent at
+// launch and wrong at serve time, so the manifest is the place to catch
+// them: the draft weights come from the target checkpoint (no separate
+// path), and the algorithm requires pp_size == 1 with DP attention off.
+func (m *Manifest) validateDSpark(fail func(string, ...any)) {
+	if v, ok := m.FlagValue("--speculative-algorithm"); !ok || v != specDSpark {
+		return
+	}
+	if _, ok := m.FlagValue("--speculative-draft-model-path"); ok {
+		fail("--speculative-algorithm %s draws its draft head from the target checkpoint; drop --speculative-draft-model-path", specDSpark)
+	}
+	if v, ok := m.FlagValue("--pp-size"); ok && v != "1" {
+		fail("--speculative-algorithm %s requires --pp-size 1 (got %q)", specDSpark, v)
+	}
+	if _, ok := m.FlagValue("--enable-dp-attention"); ok {
+		fail("--speculative-algorithm %s is incompatible with --enable-dp-attention", specDSpark)
+	}
+}
+
+// FlagValue returns the value args give to flag and whether flag is
+// present at all. Both "--k=v" and "--k v" forms resolve; a valueless
+// flag ("--k", or "--k" followed by another flag) reports "", true.
+func (m *Manifest) FlagValue(flag string) (string, bool) {
+	for i, a := range m.Args {
+		if k, v, ok := strings.Cut(a, "="); ok {
+			if k == flag {
+				return v, true
+			}
+			continue
+		}
+		if a != flag {
+			continue
+		}
+		if i+1 < len(m.Args) && !strings.HasPrefix(m.Args[i+1], "-") {
+			return m.Args[i+1], true
+		}
+		return "", true
+	}
+	return "", false
 }
 
 // HasArg reports whether args contain flag either as "--k=v" or "--k v".

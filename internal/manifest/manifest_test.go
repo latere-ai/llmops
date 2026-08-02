@@ -115,6 +115,105 @@ func TestValidateRequiredArgsMiniMax(t *testing.T) {
 	}
 }
 
+// flashManifest is DeepSeek-V4-Flash-0731's shape (specs/017) — the
+// only checkpoint in the fleet that runs speculative decoding.
+func flashManifest() *Manifest {
+	m := valid()
+	m.Name = "deepseek-v4-flash-0731"
+	m.HFRepo = "deepseek-ai/DeepSeek-V4-Flash-0731"
+	m.S3Prefix = "s3://latere-models/deepseek-ai/DeepSeek-V4-Flash-0731/" + sha + "/"
+	m.Args = []string{"--trust-remote-code", "--tp-size=8", "--speculative-algorithm=DSPARK"}
+	return m
+}
+
+func TestValidateRequiredArgsTrustRemoteCode(t *testing.T) {
+	for _, repo := range []string{"moonshotai/Kimi-K3", "deepseek-ai/DeepSeek-V4-Flash-0731"} {
+		m := valid()
+		m.HFRepo = repo
+		m.S3Prefix = "s3://latere-models/" + repo + "/" + sha + "/"
+		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "--trust-remote-code") {
+			t.Fatalf("%s without --trust-remote-code must be rejected, got %v", repo, err)
+		}
+		m.Args = append(m.Args, "--trust-remote-code")
+		if err := m.Validate(); err != nil {
+			t.Fatalf("%s with --trust-remote-code rejected: %v", repo, err)
+		}
+	}
+}
+
+func TestValidateDSpark(t *testing.T) {
+	if err := flashManifest().Validate(); err != nil {
+		t.Fatalf("DSpark manifest rejected: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			"separate draft path",
+			[]string{"--speculative-draft-model-path=/cache/draft"},
+			"--speculative-draft-model-path",
+		},
+		{"pipeline parallel", []string{"--pp-size=2"}, "--pp-size"},
+		{"pipeline parallel split form", []string{"--pp-size", "2"}, "--pp-size"},
+		{"dp attention", []string{"--enable-dp-attention"}, "--enable-dp-attention"},
+		{"dp attention with degree", []string{"--enable-dp-attention", "4"}, "--enable-dp-attention"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := flashManifest()
+			m.Args = append(m.Args, tc.args...)
+			err := m.Validate()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+
+	// The same flags are legal without DSpark — the rules are scoped to
+	// the algorithm, not banned outright.
+	m := flashManifest()
+	m.Args = []string{"--trust-remote-code", "--pp-size=2", "--enable-dp-attention"}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("non-DSpark manifest rejected: %v", err)
+	}
+	// A different algorithm does not trip the DSpark rules either.
+	m.Args = []string{"--trust-remote-code", "--speculative-algorithm", "EAGLE",
+		"--speculative-draft-model-path=/cache/draft"}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("EAGLE with a draft path rejected: %v", err)
+	}
+}
+
+func TestFlagValue(t *testing.T) {
+	m := valid()
+	m.Args = []string{"--a=1", "--b", "2", "--c", "--d", "--e="}
+	cases := []struct {
+		flag  string
+		value string
+		ok    bool
+	}{
+		{"--a", "1", true},
+		{"--b", "2", true},
+		{"--c", "", true}, // valueless: next token is another flag
+		{"--d", "", true}, // valueless: end of args
+		{"--e", "", true}, // explicitly empty
+		{"--f", "", false},
+		{"--", "", false},
+	}
+	for _, tc := range cases {
+		v, ok := m.FlagValue(tc.flag)
+		if v != tc.value || ok != tc.ok {
+			t.Errorf("FlagValue(%q) = (%q, %v), want (%q, %v)", tc.flag, v, ok, tc.value, tc.ok)
+		}
+	}
+}
+
 func TestHasArg(t *testing.T) {
 	m := valid()
 	m.Args = []string{"--a=1", "--b", "2", "--c"}
