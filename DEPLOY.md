@@ -11,13 +11,13 @@ customization knob. Design rationale lives in `specs/`.
 |---|---|---|
 | S3-compatible bucket (`latere-models`) | frozen weights home | AWS S3, DO Spaces, R2, MinIO — anything s5cmd speaks. Enable versioning; Object Lock if supported. |
 | k8s Secret `mirror-s3` in ns `open-llms` | mirror Job + node cache credentials | keys: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, plus `S3_ENDPOINT_URL` for non-AWS. Optional `HF_TOKEN` for gated repos. |
-| GPU nodes + NVIDIA GPU Operator | run the engines | node pools labeled `latere.ai/gpu-pool: h200` (or `b200`); NVMe at `/var/cache/openllms` |
+| GPU nodes + NVIDIA GPU Operator | run the engines | node pools labeled `latere.ai/gpu-pool: h200`, `b200`, or `b300`; NVMe at `/var/cache/openllms`. The `b300` pool needs an **r580+ driver** — Kimi-K3's image is CUDA 13 only |
 | [LeaderWorkerSet](https://github.com/kubernetes-sigs/lws) installed | pod-group primitive for (multi-node-ready) serving | `kubectl apply --server-side -f https://github.com/kubernetes-sigs/lws/releases/latest/download/manifests.yaml` |
 | `docker login <registry>` | push images | default registry is `ghcr.io/latere-ai`; any OCI registry works (ECR, Nexus, Harbor, …) via `REGISTRY=` |
 
 ## 1. Build and push images
 
-Three images, versioned together:
+Four images, versioned together:
 
 ```sh
 make release VERSION=v0.1.0
@@ -30,6 +30,7 @@ builds and pushes `linux/amd64` images (default registry
 yours):
 
 - `open-llms-runtime-sglang` — SGLang engine (pinned, specs/001) + `runtime` entrypoint
+- `open-llms-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools (specs/018)
 - `open-llms-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
 - `open-llms-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job
 
@@ -116,7 +117,10 @@ publicly.
 
 **License gates:** check `license`/`license_note` in the model manifest
 before Lux exposure — MiniMax-M3 requires a one-time commercial notice
-(specs/006 AC0); Kimi-K2.7 carries a modified-MIT attribution clause.
+(specs/006 AC0); Kimi-K3's Model-as-a-Service clause turns on whether Lux
+exposure counts as internal use, and that determination is unrecorded
+(specs/018 AC0); Kimi-K2.7 carries a modified-MIT attribution clause.
+DeepSeek's V4 checkpoints are plain MIT — no gate.
 
 ## Local rehearsal
 
@@ -146,7 +150,7 @@ hardware (specs/011).
 | `load` | `nvme-cache` (default) \| `s3-stream` | staged via node NVMe, or vLLM-only direct S3 streaming |
 | `gpu` | `{type, count, nodes}` | resource shape; must match the LWS manifest (CI-checked) |
 | `context_max` | int | documented context config; pair with the KV-cache args it needs |
-| `args` | list, verbatim | engine CLI flags — parallelism (`--tp-size`), parsers (`--tool-call-parser`), quantization, KV dtype. Per-model required flags are enforced (e.g. MiniMax `--block-size=128`) |
+| `args` | list, verbatim | engine CLI flags — parallelism (`--tp-size`), parsers (`--tool-call-parser`), quantization, KV dtype. Per-model required flags are enforced (MiniMax `--block-size=128`; Kimi-K3 and V4-Flash-0731 `--trust-remote-code`), as are the DSpark constraints: with `--speculative-algorithm DSPARK`, a separate `--speculative-draft-model-path`, `--pp-size` > 1, or DP attention are rejected |
 | `system_prompt` | `{mode, text}` | enforced by the shim on every request, both dialects: `default` (only when caller sends none) \| `prepend` \| `override` |
 
 The runtime always adds `--served-model-name <name>` so callers address
@@ -169,8 +173,8 @@ only carries model-specific flags.
 | Knob | Where | Notes |
 |---|---|---|
 | replicas | `spec.replicas` | whole serving groups (capacity planning, not HPA) |
-| group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL, specs/008) |
-| GPU count/pool | `resources.limits."nvidia.com/gpu"`, `nodeSelector` | must match manifest `gpu` (CI-checked); pool label selects H200 vs B200 |
+| group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL, specs/008) and requires a `workerTemplate` (CI-checked: same image and GPU count as the leader, no probes — only rank 0 serves HTTP) |
+| GPU count/pool | `resources.limits."nvidia.com/gpu"`, `nodeSelector` | must match manifest `gpu` (CI-checked); pool label selects H200 / B200 / B300 |
 | image ref | container `image` | `<REGISTRY>/open-llms-runtime-<engine>:<VERSION>` from `make release`; registry prefix is free, name must match the manifest runtime (CI-checked) |
 | NVMe cache | `volumes.cache.hostPath` | `/var/cache/openllms`; prefetch DaemonSet (specs/008) warms it |
 | `/dev/shm` | `volumes.shm.sizeLimit` | ≥32Gi (vLLM requires it for DeepSeek-V4-class models) |
@@ -182,7 +186,7 @@ only carries model-specific flags.
 |---|---|
 | `MODEL_REPO`, `MODEL_SHA` | which revision to freeze |
 | `mirror-s3` Secret | bucket credentials; `S3_ENDPOINT_URL` for DO Spaces/R2/MinIO |
-| scratch volume size | ≥ model size on disk (specs/002 table: 444 GB – 1.6 TB) |
+| scratch volume size | ≥ model size on disk (specs/002 table: 167 GB – 1.6 TB; Kimi-K3 alone is 1561 GB) |
 
 ## Troubleshooting
 

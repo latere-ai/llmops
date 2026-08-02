@@ -21,15 +21,19 @@ model gateway.
 
 ## Target models
 
-| Model | Vendor | Class |
-|---|---|---|
-| MiniMax M3 | MiniMax | MoE |
-| GLM-5.2 | Zhipu AI | MoE |
-| Kimi K2.7 Code | Moonshot AI | MoE |
-| DeepSeek V4 Pro | DeepSeek | MoE |
+| Model | Vendor | Class | Notes |
+|---|---|---|---|
+| MiniMax M3 | MiniMax | MoE | |
+| GLM-5.2 | Zhipu AI | MoE | |
+| Kimi K2.7 Code | Moonshot AI | MoE | |
+| DeepSeek V4 Pro | DeepSeek | MoE | blocked on hardware |
+| DeepSeek V4 Flash 0731 | DeepSeek | MoE | speculative decoding (DSpark) |
+| Kimi K3 | Moonshot AI | MoE | multimodal; blocked on hardware + license |
 
 Exact revisions, weight formats, and GPU footprints are pinned per model
-in `specs/` and in each model's manifest under `models/`.
+in `specs/` and in each model's manifest under `models/`. "Blocked" means
+the weights are frozen and the manifest is checked in, but no endpoint
+exists yet — see the model's spec for what the block is.
 
 ## Repo layout
 

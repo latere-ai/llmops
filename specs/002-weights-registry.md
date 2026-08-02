@@ -75,6 +75,17 @@ config reference. This file is the single source of truth a deploy consumes.
 | moonshotai/Kimi-K2.7-Code | INT4 QAT (native) | 595 GB |
 | deepseek-ai/DeepSeek-V4-Pro | FP4+FP8 | 865 GB |
 
+The 2026-08 refresh adds **1.7 TB** on top, taking the registry past
+4.4 TB — K3 alone outweighs the original four:
+
+| HF repo | Format | Size | Spec |
+|---|---|---|---|
+| deepseek-ai/DeepSeek-V4-Flash-0731 | FP4+FP8 | 167 GB | [[017-model-deepseek-v4-flash-0731]] |
+| moonshotai/Kimi-K3 | MXFP4/MXFP8 | 1561 GB | [[018-model-kimi-k3]] |
+
+Kimi-K3 is also the first repo that needs more scratch than any single
+model before it — size the mirror Job's volume at ≥1.6 TB for it.
+
 BF16/base checkpoints (MiniMax-M3 854 GB, GLM-5.2 1.51 TB,
 DeepSeek-V4-Pro-Base 1.61 TB) are **deferred** until post-training becomes
 concrete — they add ~4 TB and serve no inference purpose.
