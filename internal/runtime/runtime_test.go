@@ -709,6 +709,57 @@ func TestSystemPromptInjection(t *testing.T) {
 	}
 }
 
+func TestForwardPreservesCallerHeadersAndQuery(t *testing.T) {
+	var gotAuth, gotAccept, gotTrace, gotQuery string
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAccept = r.Header.Get("Accept")
+		gotTrace = r.Header.Get("X-Trace-Id")
+		gotQuery = r.URL.RawQuery
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"c1","choices":[]}`)
+	}))
+	defer engine.Close()
+
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim.SystemPrompt = &manifest.SystemPrompt{Mode: "override", Text: "ours"}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	req, err := http.NewRequest(http.MethodPost,
+		front.URL+"/v1/chat/completions?trace=abc123",
+		strings.NewReader(`{"model":"tiny","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer caller-token")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-Trace-Id", "trace-xyz")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if gotAuth != "Bearer caller-token" {
+		t.Errorf("engine Authorization = %q, want caller token", gotAuth)
+	}
+	if gotAccept != "text/event-stream" {
+		t.Errorf("engine Accept = %q, want text/event-stream", gotAccept)
+	}
+	if gotTrace != "trace-xyz" {
+		t.Errorf("engine X-Trace-Id = %q, want trace-xyz", gotTrace)
+	}
+	if gotQuery != "trace=abc123" {
+		t.Errorf("engine query = %q, want trace=abc123", gotQuery)
+	}
+}
+
 func TestSystemPromptInjectionAnthropicPath(t *testing.T) {
 	var got []byte
 	engine := recordingEngine(t, &got)

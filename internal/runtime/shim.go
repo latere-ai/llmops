@@ -148,7 +148,9 @@ func (s *Shim) forward(w http.ResponseWriter, r *http.Request, path string, body
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	up.Header = r.Header.Clone()
 	up.Header.Set("Content-Type", "application/json")
+	up.URL.RawQuery = r.URL.RawQuery
 	resp, err := s.inference.Do(up)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)
