@@ -1,0 +1,33 @@
+# DeepSeek-V4-Flash-0731 — specs/017. 304B MoE, 13B active, FP4 experts
+# + FP8 attention/dense. Answers specs/007 AC1: a DeepSeek-V4 endpoint on
+# one existing node while Pro stays blocked on procurement.
+#
+# DSpark's draft head lives in this same checkpoint, so there is no
+# second S3 prefix and no --speculative-draft-model-path. Manifest
+# validation rejects that flag (and --pp-size > 1, and DP attention)
+# whenever --speculative-algorithm is DSPARK.
+#
+# --mem-fraction-static 0.90 and --chunked-prefill-size 4096 come from
+# the vendor's verified 4x GB300 cell; re-measure on B200 before trusting
+# them (specs/017 AC6). 0.90 leaves room for the batch-256 verify graph —
+# lower it, not the context, if graph capture OOMs.
+name: deepseek-v4-flash-0731
+hf_repo: deepseek-ai/DeepSeek-V4-Flash-0731
+revision: 7872f01b1d1fe23eabc4c98b48bffcef5a386062
+s3_prefix: s3://latere-models/deepseek-ai/DeepSeek-V4-Flash-0731/7872f01b1d1fe23eabc4c98b48bffcef5a386062/
+format: fp4-fp8
+license: mit
+runtime: sglang
+load: nvme-cache
+gpu: { type: b200, count: 8, nodes: 1 }
+context_max: 1048576
+args:
+  - --trust-remote-code
+  - --tp-size=8
+  - --moe-runner-backend=flashinfer_mxfp4
+  - --speculative-algorithm=DSPARK
+  - --mem-fraction-static=0.90
+  - --chunked-prefill-size=4096
+  - --swa-full-tokens-ratio=0.1
+  - --reasoning-parser=deepseek-v4
+  - --tool-call-parser=deepseekv4
