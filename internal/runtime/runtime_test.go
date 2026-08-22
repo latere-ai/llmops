@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -325,8 +327,14 @@ func TestServeE2E(t *testing.T) {
 
 	healthy := true
 	engine := fakeEngine(t, &healthy)
-	engineURL, _ := url_Parse(engine.URL)
-	enginePort := engineURL.Port
+	engineURL, err := url.Parse(engine.URL)
+	if err != nil {
+		t.Fatalf("parse engine URL: %v", err)
+	}
+	enginePort, err := strconv.Atoi(engineURL.Port())
+	if err != nil {
+		t.Fatalf("engine port %q: %v", engineURL.Port(), err)
+	}
 
 	shimPort := freePort(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -445,17 +453,6 @@ func waitFor(t *testing.T, url string, code int, timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("%s never returned %d", url, code)
-}
-
-// url_Parse extracts the port from an httptest URL.
-func url_Parse(raw string) (struct{ Port int }, error) {
-	var out struct{ Port int }
-	_, portStr, err := net.SplitHostPort(strings.TrimPrefix(raw, "http://"))
-	if err != nil {
-		return out, err
-	}
-	fmt.Sscan(portStr, &out.Port)
-	return out, nil
 }
 
 // chatEngine fakes the engine's OpenAI Chat surface for dialect tests.
