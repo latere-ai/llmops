@@ -16,6 +16,10 @@ jobs:
         run: make fmt-check
       - name: Vet + tests + coverage gate (>=90%)
         run: make cover
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.1
       - name: Modernize
         run: make lint-modernize
       - name: Validate model manifests
