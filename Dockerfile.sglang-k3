@@ -4,7 +4,7 @@
 # folding it into the shared image would impose that driver on the
 # h200/b200 pools for a model that cannot run there anyway.
 # amd64 (B300 HGX); the -arm64 tag is the Grace variant.
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

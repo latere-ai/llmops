@@ -121,8 +121,8 @@ func run(args []string, out, errw io.Writer) int {
 				return err
 			}
 			for _, f := range files {
-				if strings.HasSuffix(f, mirror.ManifestName) {
-					fmt.Fprintln(out, strings.TrimSuffix(f, mirror.ManifestName))
+				if before, ok := strings.CutSuffix(f, mirror.ManifestName); ok {
+					fmt.Fprintln(out, before)
 				}
 			}
 			return nil

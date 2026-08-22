@@ -98,7 +98,7 @@ func getJSONArrayPage[T any](c *HFClient, rawURL, path string) ([]T, string, err
 // host as Base; anything else would let a response redirect metadata
 // fetches off the configured Hub.
 func nextPageURL(link string, base *url.URL) (string, error) {
-	for _, part := range strings.Split(link, ",") {
+	for part := range strings.SplitSeq(link, ",") {
 		lt := strings.Index(part, "<")
 		gt := strings.Index(part, ">")
 		if lt < 0 || gt < lt {

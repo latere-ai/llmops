@@ -178,7 +178,7 @@ func (s *S5cmdStore) List() ([]string, error) {
 		return nil, err
 	}
 	var files []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
 			files = append(files, strings.TrimPrefix(fields[len(fields)-1], s.Prefix))

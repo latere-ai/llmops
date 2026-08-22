@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,13 +69,11 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	var wg sync.WaitGroup
 	start := time.Now()
 	for w := 0; w < cfg.Concurrency; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range jobs {
 				samples[i] = oneRequest(ctx, client, cfg)
 			}
-		}()
+		})
 	}
 	for i := 0; i < cfg.Requests; i++ {
 		jobs <- i
@@ -95,7 +93,7 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		ttfts = append(ttfts, s.ttft)
 	}
 	if len(ttfts) > 0 {
-		sort.Slice(ttfts, func(i, j int) bool { return ttfts[i] < ttfts[j] })
+		slices.Sort(ttfts)
 		rep.TTFTp50Ms = float64(percentile(ttfts, 50)) / float64(time.Millisecond)
 		rep.TTFTp95Ms = float64(percentile(ttfts, 95)) / float64(time.Millisecond)
 	}

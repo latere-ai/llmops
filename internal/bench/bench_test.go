@@ -34,7 +34,7 @@ func fakeOpenAI(t *testing.T, chunks int, status int) (*httptest.Server, *atomic
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl := w.(http.Flusher)
-		for i := 0; i < chunks; i++ {
+		for range chunks {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tok\"}}]}\n\n")
 			fl.Flush()
 		}
