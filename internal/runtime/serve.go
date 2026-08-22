@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -28,15 +29,9 @@ type Options struct {
 }
 
 func (o *Options) defaults() {
-	if o.Port == 0 {
-		o.Port = 8000
-	}
-	if o.EnginePort == 0 {
-		o.EnginePort = 30000
-	}
-	if o.CacheRoot == "" {
-		o.CacheRoot = "/cache"
-	}
+	o.Port = cmp.Or(o.Port, 8000)
+	o.EnginePort = cmp.Or(o.EnginePort, 30000)
+	o.CacheRoot = cmp.Or(o.CacheRoot, "/cache")
 	if o.Log == nil {
 		o.Log = os.Stderr
 	}
