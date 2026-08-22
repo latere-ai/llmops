@@ -16,5 +16,7 @@ jobs:
         run: make fmt-check
       - name: Vet + tests + coverage gate (>=90%)
         run: make cover
+      - name: Modernize
+        run: make lint-modernize
       - name: Validate model manifests
         run: make validate

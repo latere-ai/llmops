@@ -4,7 +4,7 @@ COVER_MIN = 90.0
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover validate fmt fmt-check hooks vet e2e images clean
+.PHONY: build test cover validate fmt fmt-check hooks vet e2e images clean lint-modernize
 
 build:
 	$(GO) build ./...
@@ -39,6 +39,22 @@ hooks:
 
 vet:
 	$(GO) vet ./...
+
+# lint-modernize fails on code that a standard library call already covers.
+# It runs the toolchain modernizers, which overlap golangci-lint's modernize
+# linter but add three it does not carry: buildtag, hostport, and the
+# go:fix inline directives. newexpr and errorsastype are off for the reasons
+# recorded in .golangci.yml.
+# Only a non-empty patch fails the target. go fix also exits non-zero when a
+# package does not type-check, which is a build error rather than a finding,
+# so stderr is dropped and the decision rests on the patch alone.
+lint-modernize:
+	@patch=$$($(GO) fix -diff -newexpr=false -errorsastype=false ./... 2>/dev/null); \
+	if [ -n "$$patch" ]; then \
+		echo "$$patch"; \
+		echo "go fix: the diff above is already in the standard library; apply it with go fix"; \
+		exit 1; \
+	fi
 
 # CI-runnable e2e: full mirror pull→push→verify and runtime
 # serve→ready→metrics paths against fakes (no GPU, no network).
