@@ -2,13 +2,16 @@ package mirror
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,11 +35,7 @@ func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]
 	mux.HandleFunc("/api/models/"+repo+"/tree/"+testSHA, func(w http.ResponseWriter, r *http.Request) {
 		// Deterministic order: map iteration is random, and cursor
 		// paging is only coherent over a stable sequence.
-		paths := make([]string, 0, len(files))
-		for path := range files {
-			paths = append(paths, path)
-		}
-		sort.Strings(paths)
+		paths := slices.Sorted(maps.Keys(files))
 		var tree []map[string]any
 		for _, path := range paths {
 			entry := map[string]any{"type": "file", "path": path, "size": len(files[path])}
@@ -78,12 +77,8 @@ func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]
 }
 
 func sha256Hex(content string) string {
-	f, _ := os.CreateTemp("", "h")
-	f.WriteString(content)
-	f.Close()
-	defer os.Remove(f.Name())
-	sum, _ := FileSHA256(f.Name())
-	return sum
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
 }
 
 // fakeDownloader materializes files into --local-dir, simulating
