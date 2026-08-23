@@ -1,5 +1,9 @@
 # open-llms
 
+[![ci](https://github.com/latere-ai/open-llms/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/open-llms/actions/workflows/ci.yml)
+[![go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Latere's end-to-end inference layer for open-weights models. Instead of
 renting model access through a router (OpenRouter et al.), this repo owns
 the full path: weights frozen in our own S3 bucket, inference engines
@@ -47,22 +51,38 @@ internal/   manifest schema, mirror logic, runtime shim, bench, deploycheck
 Operators: [`DEPLOY.md`](./DEPLOY.md) is the end-to-end guide — build
 images, freeze weights, deploy, and every configuration knob.
 
+## Build
+
+Go 1.27 or newer, no cgo, no other build dependency:
+
+```sh
+git clone https://github.com/latere-ai/open-llms.git
+cd open-llms
+make build                       # go build ./...
+go build -o bin/ ./cmd/...       # mirror, runtime, bench binaries
+```
+
+`make hooks` installs the pre-commit gofmt and modernizer guard.
+
 ## Usage
 
-Freeze a model into S3 (one-time per revision):
+Freeze a model into S3 (one-time per revision). `--bucket` takes any
+s5cmd-reachable root, so AWS S3, DO Spaces, R2 and MinIO all work:
 
 ```sh
 go run ./cmd/mirror pull moonshotai/Kimi-K2.7-Code --dir /scratch/kimi
 go run ./cmd/mirror push moonshotai/Kimi-K2.7-Code@<sha> \
-    --dir /scratch/kimi --bucket s3://latere-models
-go run ./cmd/mirror verify s3://latere-models/moonshotai/Kimi-K2.7-Code/<sha>/
+    --dir /scratch/kimi --bucket s3://<your-bucket>
+go run ./cmd/mirror verify s3://<your-bucket>/moonshotai/Kimi-K2.7-Code/<sha>/
 ```
 
-Validate manifests and serve (inside the runtime image on a GPU node):
+Validate manifests, then serve. `runtime serve` is the container
+entrypoint, so on a GPU node it runs from the built image rather than
+from a checkout:
 
 ```sh
 go run ./cmd/runtime validate models/
-runtime serve --manifest /etc/openllms/model.yaml   # container entrypoint
+bin/runtime serve --manifest /etc/openllms/model.yaml
 ```
 
 Each model endpoint speaks OpenAI Chat natively (engine passthrough)
@@ -78,16 +98,49 @@ go run ./cmd/bench --url http://kimi-k2-7-code.open-llms.svc:8000 \
     --model kimi-k2.7-code --concurrency 8 --requests 32 --out report.json
 ```
 
-`make cover` runs the test suite with a ≥90% coverage gate; the CI-run
-e2e suite exercises mirror pull→push→verify and the runtime
-serve→ready→metrics path against fakes. GPU serving on real hardware is
-a release gate per model (specs/004–007).
+## Testing
+
+```sh
+make test        # go vet + go test ./...
+make cover       # same, with a ≥90% total-statement coverage gate
+make validate    # every models/*.yaml plus its deploy/*/lws.yaml
+make e2e         # mirror pull→push→verify and runtime serve→ready→metrics
+make e2e-local   # the whole pipeline on a laptop
+```
+
+`make test`, `make cover`, `make validate` and the lint targets need
+nothing but a Go toolchain, and CI runs all of them on every push. `make
+e2e` is a subset of the same suite: it drives the real code paths against
+in-process fakes, so it needs no GPU, no network and no credentials.
+Nothing in these targets is skipped for missing configuration.
+
+`make e2e-local` is the only target with external prerequisites: Docker
+or Podman, [uv](https://docs.astral.sh/uv/), and a one-time download of
+roughly 1.5 GB. It runs the full pipeline against MinIO for S3 and a 0.6B
+model under mlx, at zero cloud cost. It also needs Apple silicon, since
+mlx is the local engine.
+
+GPU serving on real hardware is not covered by any automated suite. It is
+a per-model release gate, run by hand against the model's spec.
 
 ## Status
 
-Implementation of specs 001–003 and 008/010 scaffolding is in place
-(mirror tool, runtime entrypoint + health shim, manifests with pinned
-revisions, LWS deploys, bench harness). Not yet done: the actual
-multi-hundred-GB mirrors, GPU deployments, and Lux registration
-(specs/004–007, 009). Read `specs/README.md` for the roadmap and
-`specs/001-inference-engine-selection.md` for the engine decision.
+Working today: the mirror tool, the runtime entrypoint and health shim,
+the bench harness, pinned manifests for all six models, and their
+LeaderWorkerSet deploys. The manifest/deploy consistency check runs in
+CI, and the whole pipeline is exercised end to end on a laptop.
+
+Not yet done: the actual multi-hundred-GB mirrors, the GPU deployments,
+and gateway registration. The per-model specs record what each one is
+blocked on. The monitoring-plane specs (numbers 012 through 016) are
+design only, with no code in this repo yet.
+
+APIs are not frozen. The manifest schema, the shim's endpoints and the
+CLI flags may change while the first models are brought up.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
+
+Read [`specs/README.md`](./specs/README.md) for the roadmap and the
+design records behind each decision.
