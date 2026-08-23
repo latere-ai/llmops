@@ -3,13 +3,13 @@
 How to take a model from Hugging Face to a serving endpoint behind Lux:
 build the images, freeze the weights into S3, deploy on GPU Kubernetes,
 and verify. The configuration reference at the end lists every
-customization knob. Design rationale lives in `specs/`.
+customization knob. Design rationale lives in [`specs/`](./specs/README.md).
 
 ## Prerequisites
 
 | What | Why | Notes |
 |---|---|---|
-| S3-compatible bucket (`latere-models`) | frozen weights home | AWS S3, DO Spaces, R2, MinIO — anything s5cmd speaks. Enable versioning; Object Lock if supported. |
+| An S3-compatible bucket | frozen weights home | AWS S3, DO Spaces, R2, MinIO, anything s5cmd speaks. Enable versioning; Object Lock if supported. The checked-in manifests point at a bucket named `latere-models`; change `s3_prefix` in `models/*.yaml` to use your own. |
 | k8s Secret `mirror-s3` in ns `open-llms` | mirror Job + node cache credentials | keys: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, plus `S3_ENDPOINT_URL` for non-AWS. Optional `HF_TOKEN` for gated repos. |
 | GPU nodes + NVIDIA GPU Operator | run the engines | node pools labeled `latere.ai/gpu-pool: h200`, `b200`, or `b300`; NVMe at `/var/cache/openllms`. The `b300` pool needs an **r580+ driver** — Kimi-K3's image is CUDA 13 only |
 | [LeaderWorkerSet](https://github.com/kubernetes-sigs/lws) installed | pod-group primitive for (multi-node-ready) serving | `kubectl apply --server-side -f https://github.com/kubernetes-sigs/lws/releases/latest/download/manifests.yaml` |
@@ -29,8 +29,8 @@ builds and pushes `linux/amd64` images (default registry
 `ghcr.io/latere-ai`; the image *names* are fixed, the registry prefix is
 yours):
 
-- `open-llms-runtime-sglang` — SGLang engine (pinned, specs/001) + `runtime` entrypoint
-- `open-llms-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools (specs/018)
+- `open-llms-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](./specs/001-inference-engine-selection.md)) + `runtime` entrypoint
+- `open-llms-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools
 - `open-llms-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
 - `open-llms-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job
 
@@ -48,7 +48,7 @@ disk live there):
 
 ```sh
 # Edit deploy/mirror/job.yaml: set metadata.name, MODEL_REPO, MODEL_SHA,
-# and the scratch volume size (>= model size, see specs/002 table).
+# --bucket, and the scratch volume size (>= the model's size on disk).
 kubectl -n open-llms apply -f deploy/mirror/job.yaml
 kubectl -n open-llms logs -f job/mirror-<name>
 ```
@@ -59,8 +59,8 @@ presence marks the mirror complete. Re-running is idempotent; verify
 anytime:
 
 ```sh
-mirror verify s3://latere-models/<org>/<repo>/<sha>/
-mirror ls --bucket s3://latere-models
+mirror verify s3://<your-bucket>/<org>/<repo>/<sha>/
+mirror ls --bucket s3://<your-bucket>
 ```
 
 Then pin the model in `models/<name>.yaml` (see the configuration
@@ -105,22 +105,22 @@ curl -s localhost:8000/anthropic/v1/messages -H 'Content-Type: application/json'
 # Metrics (engine passthrough + openllms_weights_load_seconds)
 curl -s localhost:8000/metrics | grep openllms
 
-# Baseline benchmark (feeds Lux cost config, specs/010)
+# Baseline benchmark (produces the numbers the gateway's cost config needs)
 go run ./cmd/bench --url http://localhost:8000 --model kimi-k2.7-code \
   --concurrency 8 --requests 32 --out report.json
 ```
 
 Finally register the in-cluster endpoint
-(`http://<name>.open-llms.svc:8000/v1`) as a provider in Lux
-(specs/009) — Lux is the only ingress; engine pods are never exposed
-publicly.
+(`http://<name>.open-llms.svc:8000/v1`) as a provider in Lux. Lux is the
+only ingress; engine pods are never exposed publicly.
 
 **License gates:** check `license`/`license_note` in the model manifest
-before Lux exposure — MiniMax-M3 requires a one-time commercial notice
-(specs/006 AC0); Kimi-K3's Model-as-a-Service clause turns on whether Lux
-exposure counts as internal use, and that determination is unrecorded
-(specs/018 AC0); Kimi-K2.7 carries a modified-MIT attribution clause.
-DeepSeek's V4 checkpoints are plain MIT — no gate.
+before you expose it through the gateway. MiniMax-M3 requires a one-time
+commercial notice, which must be sent first. Kimi-K3's
+Model-as-a-Service clause turns on whether gateway exposure counts as
+internal use, and no such determination has been recorded, so K3 must not
+be exposed yet. Kimi-K2.7 carries a modified-MIT attribution clause.
+DeepSeek's V4 checkpoints are plain MIT, with no gate.
 
 ## Local rehearsal
 
@@ -131,8 +131,9 @@ same tools, MinIO for S3, a 0.6B model, mlx as the engine:
 make e2e-local
 ```
 
-Use it to validate changes to the runtime/mirror before touching real
-hardware (specs/011).
+Use it to validate changes to the runtime and mirror before touching real
+hardware. It needs Docker or Podman, `uv`, and Apple silicon, since the
+local engine is mlx.
 
 ## Configuration reference
 
@@ -173,10 +174,10 @@ only carries model-specific flags.
 | Knob | Where | Notes |
 |---|---|---|
 | replicas | `spec.replicas` | whole serving groups (capacity planning, not HPA) |
-| group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL, specs/008) and requires a `workerTemplate` (CI-checked: same image and GPU count as the leader, no probes — only rank 0 serves HTTP) |
+| group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL) and requires a `workerTemplate` (CI-checked: same image and GPU count as the leader, no probes — only rank 0 serves HTTP) |
 | GPU count/pool | `resources.limits."nvidia.com/gpu"`, `nodeSelector` | must match manifest `gpu` (CI-checked); pool label selects H200 / B200 / B300 |
 | image ref | container `image` | `<REGISTRY>/open-llms-runtime-<engine>:<VERSION>` from `make release`; registry prefix is free, name must match the manifest runtime (CI-checked) |
-| NVMe cache | `volumes.cache.hostPath` | `/var/cache/openllms`; prefetch DaemonSet (specs/008) warms it |
+| NVMe cache | `volumes.cache.hostPath` | `/var/cache/openllms`; a prefetch DaemonSet warms it |
 | `/dev/shm` | `volumes.shm.sizeLimit` | ≥32Gi (vLLM requires it for DeepSeek-V4-class models) |
 | probe budget | `readinessProbe.failureThreshold` | cold start for the big models is minutes — size it accordingly |
 
@@ -186,7 +187,7 @@ only carries model-specific flags.
 |---|---|
 | `MODEL_REPO`, `MODEL_SHA` | which revision to freeze |
 | `mirror-s3` Secret | bucket credentials; `S3_ENDPOINT_URL` for DO Spaces/R2/MinIO |
-| scratch volume size | ≥ model size on disk (specs/002 table: 167 GB – 1.6 TB; Kimi-K3 alone is 1561 GB) |
+| scratch volume size | ≥ model size on disk (167 GB to 1.6 TB across the current set; Kimi-K3 alone is 1561 GB) |
 
 ## Troubleshooting
 
