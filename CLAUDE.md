@@ -7,5 +7,5 @@
 - Write in audience language, where documents aim users value and usage understanding, api surface aim builders precision, and code comments aim tech precision.
 - Specs live in specs/
 - Relevant latere projects and shared components (latere.ai/x/pkg/*) are in ../
-- This repo owns the open-weights inference layer end to end: frozen weights in S3, serving on bare-metal k8s GPU nodes, OpenAI-compatible endpoints registered behind Lux (../lux).
-- Reference sibling for serving conventions (health/ready/metrics contract, Docker + k8s packaging): ../ocrmodel
+- This repo owns the open-weights inference layer end to end: frozen weights in S3, serving on bare-metal k8s GPU nodes, OpenAI-compatible endpoints registered behind the Lux model gateway.
+- Serving conventions follow the shared latere service contract: /healthz, /ready, /metrics, Docker + k8s packaging.

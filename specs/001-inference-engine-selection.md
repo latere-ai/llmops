@@ -54,7 +54,8 @@ default:
   SGLang lacks — this shapes [[003-serving-runtime]]: the NVMe prefetch
   path must work for both engines, S3-direct streaming is a vLLM-only
   bonus.
-- ../ocrmodel already runs vLLM; operational familiarity.
+- An existing latere serving stack already runs vLLM; operational
+  familiarity.
 - Moonshot lists vLLM first for Kimi; DeepSeek-V4 vLLM support is
   production-hardened since v0.23.
 

@@ -27,8 +27,8 @@ release checkpoint FP4 experts + FP8 rest at 864.7 GB — **does not fit
 3. **2x 8x H100 multi-node** — needs RoCEv2 + NCCL wiring and multi-node
    LWS (first real use of [[008-k8s-serving]]'s multi-node path).
 
-The choice is a procurement question (../terraform); this spec blocks on
-it and records the decision.
+The choice is a procurement question owned by infrastructure; this spec
+blocks on it and records the decision.
 
 ## Facts (verified 2026-07-18)
 

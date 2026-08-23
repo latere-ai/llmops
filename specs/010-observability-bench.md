@@ -51,7 +51,7 @@ producing the numbers the per-model specs and Lux cost entries require.
 
 ## Non-goals
 
-- Quality/accuracy evals (../eval owns task-level evaluation).
+- Quality/accuracy evals (task-level evaluation is owned elsewhere).
 - Alerting/SLOs (later, once real traffic exists).
 
 ## Verification

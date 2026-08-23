@@ -31,8 +31,8 @@ architecture change.
    model prefixes from S3 to hostPath NVMe so pod cold-start skips the
    S3 pull; runtime's `nvme-cache` mode finds a warm cache. Cache eviction
    is manual (models are few and huge).
-3. **Node prerequisites documented** (owned by ../terraform, consumed
-   here): NVIDIA GPU Operator; for multi-node later — Network Operator,
+3. **Node prerequisites documented** (owned by infrastructure
+   provisioning, consumed here): NVIDIA GPU Operator; for multi-node later — Network Operator,
    RoCEv2 (not InfiniBand: 400GbE RoCEv2 is the 2026 inference default),
    NCCL env (`NCCL_SOCKET_IFNAME`, `NCCL_IB_HCA`, `NCCL_NET_GDR_LEVEL`).
 4. **Gang scheduling**: none needed for size=1 groups; when multi-node
@@ -61,7 +61,7 @@ architecture change.
 
 ## Non-goals
 
-- GPU procurement / node provisioning (../terraform).
+- GPU procurement / node provisioning.
 - Multi-node PD-disaggregation, llm-d/Dynamo adoption (Future: triggered
   when a model needs >1 node in production — DeepSeek-V4-Pro on Hopper —
   or when utilization demands disagg).

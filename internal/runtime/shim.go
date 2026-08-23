@@ -19,7 +19,7 @@ import (
 )
 
 // Shim fronts the engine with the latere service contract
-// (specs/003-serving-runtime.md, mirroring ../ocrmodel):
+// (specs/003-serving-runtime.md):
 //
 //	GET /healthz  — 200 once the process is up
 //	GET /ready    — 200 when weights are loaded AND the engine is healthy
@@ -57,7 +57,7 @@ func NewShim(engineURL string) (*Shim, error) {
 		client:    &http.Client{Timeout: 5 * time.Second},
 		inference: &http.Client{},
 		// Anthropic Messages callers drive the engine's OpenAI Chat
-		// surface through the shared dialect translator (../pkg/llmdialect).
+		// surface through the shared dialect translator (latere.ai/x/pkg/llmdialect).
 		// The Lux dialect is deliberately absent: that surface belongs to
 		// the gateway, which embeds the same package (specs/009).
 		translator: &llmdialect.Translator{

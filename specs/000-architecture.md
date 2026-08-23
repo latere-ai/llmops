@@ -32,22 +32,23 @@ Three planes:
    loading directly from S3, exposing OpenAI-compatible APIs
    ([[001-inference-engine-selection]], [[003-serving-runtime]],
    [[008-k8s-serving]]).
-3. **Access plane** — endpoints registered in Lux (../lux), which owns
-   authn, keys, usage, and cost ([[009-lux-integration]]). open-llms does
-   **not** re-implement gateway concerns.
+3. **Access plane** — endpoints registered in Lux, the latere model
+   gateway, which owns authn, keys, usage, and cost
+   ([[009-lux-integration]]). open-llms does **not** re-implement gateway
+   concerns.
 
 ## Constraints
 
 - All four target models are very large MoE: the minimum serving unit is an
   8x H200-class node (Kimi INT4, GLM FP8, MiniMax MXFP8); DeepSeek-V4-Pro
   wants 8x B200/B300 for its native FP4 path or 2x8 H100 multi-node.
-  Hardware acquisition is out of scope here (terraform repo) but specs must
-  state each model's exact GPU footprint.
+  Hardware acquisition is out of scope here (infrastructure provisioning)
+  but specs must state each model's exact GPU footprint.
 - License hygiene per model: GLM-5.2 and DeepSeek-V4 are MIT; Kimi-K2.7 is
   modified-MIT (attribution clause); MiniMax-M3 is MiniMax Community
   License (commercial notice required; >$20M revenue needs written
   authorization). Recorded per model in `models/*.yaml`.
-- Sibling conventions from ../ocrmodel apply: `/healthz`, `/ready`,
+- The shared latere service conventions apply: `/healthz`, `/ready`,
   `/metrics` contract, Docker + k8s packaging, e2e-verified features.
 
 ## Spec roadmap (ordered, each tightly scoped)
@@ -73,10 +74,10 @@ goes last because it has the hardest hardware requirement.
 ## Non-goals
 
 - Post-training (fine-tuning/RL). Frozen BF16/base weights make it
-  *possible* later; the training stack will be a separate repo (likely
-  alongside ../wade). This repo's only obligation: don't preclude it —
-  keep base-checkpoint mirroring supported in the registry tool.
-- Domain API wrappers (ocrmodel-style OCR endpoints) — those stay their
+  *possible* later; the training stack belongs to a separate repo. This
+  repo's only obligation: don't preclude it, keep base-checkpoint
+  mirroring supported in the registry tool.
+- Domain API wrappers (OCR endpoints and the like) — those stay their
   own repos. But their *weights* belong in the registry, and their
   containers can deploy here via `runtime: custom`
   ([[003-serving-runtime]]): the repo is scoped to any self-hosted

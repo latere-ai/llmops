@@ -24,12 +24,13 @@ One containerized runtime pattern that turns a `models/<name>.yaml`
 manifest into a serving process: fetch/stream weights from the frozen S3
 prefix, launch the pinned engine (SGLang or vLLM) with the manifest's
 args, and expose the OpenAI-compatible API plus the latere health/metrics
-contract (same as ../ocrmodel: `/healthz`, `/ready`, `/metrics`).
+contract (`/healthz`, `/ready`, `/metrics`), the same one the other
+latere serving images honor.
 
 Engines already ship OpenAI-compatible servers — we do **not** reshape
-the inference path (unlike ocrmodel, which adds domain endpoints). The
-runtime is: entrypoint + weight loading + config rendering + health
-surface. Thin by design.
+the inference path, unlike a domain service that adds its own task
+endpoints on top. The runtime is: entrypoint + weight loading + config
+rendering + health surface. Thin by design.
 
 **System prompts.** An optional manifest block
 
@@ -44,8 +45,8 @@ is enforced by the shim on every chat request, on both dialect surfaces:
 `prepend` always inserts before the caller's, `override` replaces it.
 This is the inference layer's knob for deployment-wide behavioral
 defaults (and a stable prefix helps RadixAttention cache hit rates);
-per-tenant/policy prompts stay in Lux. Task prompts (ocrmodel-style)
-stay in domain wrappers.
+per-tenant/policy prompts stay in Lux. Task prompts stay in the domain
+wrappers that own the task.
 
 **Dialects.** The engine's OpenAI Chat surface proxies through
 unchanged. The shim additionally serves `POST /anthropic/v1/messages`
@@ -104,8 +105,8 @@ validates all manifests.
 ## Custom runtimes (`runtime: custom`)
 
 The two engine images cover OpenAI-chat-shaped models. Anything else —
-OCR wrappers (../ocrmodel-style), TTS/ASR beyond what vLLM serves,
-embeddings, future modalities — plugs in as `runtime: custom` with an
+OCR wrappers, TTS/ASR beyond what vLLM serves, embeddings, future
+modalities — plugs in as `runtime: custom` with an
 `image:` reference. The contract is the same one the engine images honor:
 weights arrive from the manifest's S3 prefix (nvme-cache mode), the
 manifest is mounted at `MODEL_MANIFEST`, and the container exposes
@@ -120,8 +121,8 @@ container.
    mirrored by [[002-weights-registry]]'s test) serves
    `/v1/chat/completions` from S3-frozen weights on a single local GPU —
    the e2e test for the whole S3→engine path, runnable in CI on one GPU.
-2. `/healthz`, `/ready`, `/metrics` behave per the ocrmodel contract:
-   `/ready` 503 during load, 200 after; metrics include
+2. `/healthz`, `/ready`, `/metrics` behave per the shared service
+   contract: `/ready` 503 during load, 200 after; metrics include
    `weights_load_seconds`.
 3. NVMe cache mode: second pod start on a warm node skips download
    (test asserts no S3 GETs); corrupted cache file is detected and

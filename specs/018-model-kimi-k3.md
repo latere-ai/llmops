@@ -71,9 +71,9 @@ to serve is the point of this repo, and upstream repos mutate.
 8x B300 is 2304 GB of HBM against 1561 GB of weights — ~740 GB left for
 the KDA state pool, the MLA KV pool, and activations. It is the only
 option that keeps K3 single-node on our own hardware, and the vendor
-calls B300 1x8 the accuracy-first default. Cost: procurement
-(../terraform), and a node pool whose driver is r580+ from day one,
-which the existing h200/b200 pools are not.
+calls B300 1x8 the accuracy-first default. Cost: procurement, and a node
+pool whose driver is r580+ from day one, which the existing h200/b200
+pools are not.
 
 Fallback if procurement slips: **H200 2x8, TP16/EP16** (Marlin +
 FlashMLA, symm-mem, cross-node NIC pinned via `NCCL_SOCKET_IFNAME` /

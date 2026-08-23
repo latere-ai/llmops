@@ -1,6 +1,6 @@
 // Package bench drives an OpenAI-compatible endpoint and reports
 // latency/throughput (specs/010-observability-bench.md). It measures the
-// serving path only; quality evals live in ../eval.
+// serving path only, not answer quality.
 package bench
 
 import (

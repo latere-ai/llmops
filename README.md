@@ -4,8 +4,7 @@ Latere's end-to-end inference layer for open-weights models. Instead of
 renting model access through a router (OpenRouter et al.), this repo owns
 the full path: weights frozen in our own S3 bucket, inference engines
 running on bare-metal Kubernetes GPU nodes, OpenAI-compatible endpoints
-registered behind [Lux](https://github.com/latere-ai/lux) — the Latere
-model gateway.
+registered behind Lux, the Latere model gateway.
 
 ## Why own the inference layer
 

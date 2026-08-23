@@ -5,7 +5,6 @@ depends_on:
   - 003-serving-runtime.md
 affects:
   - deploy/
-  - ../lux
 effort: small
 created: 2026-07-18
 updated: 2026-07-18
@@ -17,8 +16,8 @@ dispatched_task_id: null
 
 ## Overview
 
-open-llms endpoints become first-class providers in Lux (../lux), the
-latere model gateway. Lux owns authn (virtual keys), usage/cost tracking,
+open-llms endpoints become first-class providers in Lux, the latere
+model gateway. Lux owns authn (virtual keys), usage/cost tracking,
 limits, and audit; open-llms exposes plain in-cluster OpenAI-compatible
 services. The goal state: a latere app switches from
 `openrouter/deepseek/...` to `open-llms/deepseek-v4-pro` by changing a
@@ -41,7 +40,7 @@ model string in Lux — nothing else.
 
 1. Kimi-K2.7-Code callable through Lux with a virtual key from outside
    the cluster; usage rows appear with correct token counts (e2e test in
-   lux's harness or a script here — decide at impl).
+   the gateway's own harness or a script here, decide at impl).
 2. Streaming works end-to-end through Lux (SSE passthrough verified).
 3. Tool-calls round-trip through Lux unmodified (e2e).
 4. Cost per 1M tokens configured and visible in the Lux dashboard for
