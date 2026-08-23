@@ -910,3 +910,93 @@ func TestShimHealthPathOverride(t *testing.T) {
 		t.Fatal("custom health path not used")
 	}
 }
+
+// captureEngine records the OpenAI Chat request the shim forwards upstream and
+// answers a minimal completion, so a test can assert on what the engine is
+// actually asked rather than only on what the caller gets back.
+func captureEngine(t *testing.T, into *[]byte) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read forwarded body: %v", err)
+		}
+		*into = b
+		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A user turn may interleave text and tool results in one content array. The
+// engine has no array-content equivalent for a tool result -- it needs a
+// separate message with role "tool" -- so the translator has to split the turn.
+// The order it splits into is what the model reads as the conversation.
+//
+// This pins that the split preserves the caller's authored order. An earlier
+// dialect version hoisted the tool message ahead of text that was authored
+// before it, which told the model a tool had answered before a question the
+// caller had in fact asked first. The shim has no test that exercises a
+// tool_result at all, so nothing else here would notice that regressing.
+func TestShimAnthropicToolResultPreservesTurnOrder(t *testing.T) {
+	var forwarded []byte
+	engine := captureEngine(t, &forwarded)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	body := `{"model":"tiny","max_tokens":32,"messages":[{"role":"user","content":[` +
+		`{"type":"text","text":"before"},` +
+		`{"type":"tool_result","tool_use_id":"tu_1","content":"R"},` +
+		`{"type":"text","text":"after"}]}]}`
+	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, out)
+	}
+
+	var sent struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			Content    any    `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(forwarded, &sent); err != nil {
+		t.Fatalf("decode forwarded request: %v\n%s", err, forwarded)
+	}
+
+	want := []struct {
+		role, content, toolCallID string
+	}{
+		{"user", "before", ""},
+		{"tool", "R", "tu_1"},
+		{"user", "after", ""},
+	}
+	if len(sent.Messages) != len(want) {
+		t.Fatalf("forwarded %d messages, want %d:\n%s", len(sent.Messages), len(want), forwarded)
+	}
+	for i, w := range want {
+		got := sent.Messages[i]
+		if got.Role != w.role {
+			t.Errorf("message %d role = %q, want %q", i, got.Role, w.role)
+		}
+		if s, _ := got.Content.(string); s != w.content {
+			t.Errorf("message %d content = %v, want %q", i, got.Content, w.content)
+		}
+		if got.ToolCallID != w.toolCallID {
+			t.Errorf("message %d tool_call_id = %q, want %q", i, got.ToolCallID, w.toolCallID)
+		}
+	}
+}
