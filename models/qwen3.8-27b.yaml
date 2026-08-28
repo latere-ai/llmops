@@ -1,0 +1,32 @@
+# Qwen3.8-27B — specs/022. 27B dense, natively multimodal, served at
+# full BF16 with no quantization on one GB10 (specs/019).
+#
+# The config declares architectures: [Qwen3_5ForConditionalGeneration]
+# with model_type qwen3_5 — the 3.5 family name, not the 3.8 marketing
+# name, and the string an engine actually matches on. vLLM v0.28.0 lists
+# it in its *multimodal* registry, so vision is supported rather than
+# only the text path.
+#
+# No weight source is named: load: local resolves to
+# <weights-root>/Qwen/Qwen3.8-27B/<revision>, and the host supplies the
+# root (--cache-root). Keeping it out of the manifest is what lets this
+# file describe the model on any machine (specs/021).
+#
+# --gpu-memory-utilization is 0.65, below the 0.80 ceiling specs/019
+# enforces. vLLM does not treat the fraction as a cap it stays under; it
+# fills the budget with KV blocks. 0.65 x 128 GB = 83.2 GB, which covers
+# 54 GB of weights plus the 17.2 GB of KV that 262K context needs, and
+# leaves ~45 GB of the box to the operating system.
+name: qwen3.8-27b
+hf_repo: Qwen/Qwen3.8-27B
+revision: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
+format: bf16
+license: apache-2.0
+runtime: vllm
+deploy: bare-metal
+load: local
+gpu: { type: gb10, count: 1, nodes: 1 }
+context_max: 262144
+args:
+  - --max-model-len=262144
+  - --gpu-memory-utilization=0.65
