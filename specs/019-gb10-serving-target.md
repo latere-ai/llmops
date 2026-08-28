@@ -22,53 +22,51 @@ dispatched_task_id: null
 
 Every node class the fleet serves on today is the same shape: an x86_64
 host with 4-8 discrete GPUs, each with its own HBM, tensor-parallel
-across the node. GB10 is a different class, and it breaks three
-assumptions that are currently implicit rather than written down.
+across the node. GB10 is a different shape, and it breaks assumptions
+that are currently implicit rather than written down.
 
-This spec makes GB10 a first-class `gpu.type` and states what the class
-costs. It adds no manifest fields. What it forces is a new engine
-([[020-llamacpp-runtime]]) and a new load mode
-([[021-local-weight-loading]]); those are separate specs because they are
-useful independently of this hardware.
+It does **not** break the engine choice. Both engines run here — see
+"What does not change" below. The cost of this class is memory
+behaviour, not software availability.
 
 ## Facts (verified 2026-08-28)
 
 - **One GPU per node.** GB10 is a single Blackwell die fused with an
-  arm64 Grace CPU. There is no intra-node tensor parallelism to exploit:
-  `--tp-size` is 1, and every flag the fleet manifests carry for
-  multi-GPU sharding is inapplicable.
+  arm64 Grace CPU. There is no intra-node tensor parallelism: `--tp-size`
+  is 1, and every multi-GPU sharding flag the fleet manifests carry is
+  inapplicable.
 - **Compute capability SM121**, CUDA 13.0, driver floor r580.
 - **128 GB LPDDR5X unified** between CPU and GPU. Around 119 GB is
   addressable in practice; plan against **~115 GB** with the OS and
   system services running, less if a desktop session is up.
-- **arm64 host.** Every runtime image the fleet pins is x86_64 only.
 - `nvidia-smi` reports `[N/A]` for `memory.total`, `memory.free` and
   `memory.used` on this part. GPU memory accounting goes through host
   `/proc/meminfo`, not the device.
 - Local NVMe on this class reads at roughly 5 GB/s, which sets the
-  cold-start floor: a 90 GB model is ~20 s of pure I/O once cached, and
-  the network fetch that fills the cache dominates first start.
+  cold-start floor once weights are resident.
 
-## The three assumption breaks
+## What does not change
 
-### 1. No engine image exists for this architecture
+Both engine images already publish `linux/arm64` at the versions the
+repo pins, and both build SM121 kernels:
 
-`Dockerfile.vllm` pins `vllm/vllm-openai:v0.25.1` and
-`Dockerfile.sglang` pins `lmsysorg/sglang:v0.5.16-cu129`. Neither
-publishes an aarch64 tag, and neither builds for SM121. The upstream
-blocker is PyTorch: there are no arm64 CUDA wheels at the versions these
-engines require, and vLLM's precompiled kernels link `libcudart.so.12`
-against a CUDA 13 system
-([vllm-project/vllm#31128](https://github.com/vllm-project/vllm/issues/31128)).
+| Image | arm64 | Note |
+|---|---|---|
+| `lmsysorg/sglang:v0.5.16-cu129` | yes | the pinned tag is multi-arch today |
+| `vllm/vllm-openai:v0.28.0` | yes | bumped from v0.25.1 for this class |
 
-Community aarch64 SGLang builds for this GPU exist but sit around
-v0.5.8 — **below the v0.5.16 floor [[017-model-deepseek-v4-flash-0731]]
-requires for the DSpark path**. So the fleet's DeepSeek configuration
-does not transfer to GB10 even if the architecture were solved.
+vLLM's build config lists compute capability 12.1 (SM121), and it has
+shipped aarch64 CUDA wheels since v0.13.0. So this class needs **no new
+engine**: it uses the same SGLang-primary, vLLM-second choice recorded in
+[[001-inference-engine-selection]], and that decision record stands
+unamended.
 
-Consequence: GB10 needs its own engine. See [[020-llamacpp-runtime]].
+What the images do not cover is our own layer on top of them — see
+[[020-arm64-runtime-images]].
 
-### 2. Unified memory has no separate device budget
+## What does change
+
+### 1. Unified memory has no separate device budget
 
 On a discrete-HBM node, `--mem-fraction-static 0.90` reserves 90% of
 *device* memory and the host keeps its own RAM. On GB10 there is one
@@ -83,17 +81,36 @@ usable  ≥  weights  +  kv_cache  +  activations
 ```
 
 Every GB10 model spec states its own `weights + kv_cache` arithmetic
-against `usable ≈ 115 GB`. A manifest whose engine flags reserve a
-memory *fraction* rather than an absolute budget is a bug on this class,
-not a tuning choice.
+against `usable ≈ 115 GB`.
 
-### 3. GPU memory is not observable through the device
+The fraction flag cannot simply be banned: both engines size their KV
+cache from it, and an **absent** flag is worse than a bad one, because
+the engine then applies its own default (vLLM's is 0.90) against the
+whole 128 GB pool and leaves the host about 13 GB. So on this class the
+flag is **required and bounded**:
+
+```
+fraction  x  128 GB  <=  102 GB      ->   fraction <= 0.80
+```
+
+0.80 leaves roughly 26 GB for the operating system, the container
+runtime and page cache. That is a schema rule a manifest can be checked
+against, unlike "state an absolute budget", which neither engine
+accepts.
+
+### 2. GPU memory is not observable through the device
 
 [[010-observability-bench]] assumes GPU memory metrics come from the
-device. On GB10 they do not exist there. Memory pressure on this class
-has to be read from host memory, and any dashboard panel keyed on
-device memory will render empty rather than wrong — which is worse,
-because it looks like a scrape failure.
+device. On GB10 they do not exist there. Memory pressure has to be read
+from host memory, and any dashboard panel keyed on device memory renders
+empty rather than wrong — which is worse, because it looks like a scrape
+failure.
+
+### 3. One GPU, so the failure mode is different
+
+At `count: 1` there is no partial degradation: the node serves one model
+or none. A second model on the same node contends for the same pool
+rather than for a free GPU. One model per GB10 node is the rule.
 
 ## Decision
 
@@ -112,20 +129,18 @@ resources:
     nvidia.com/gpu: "1"
 ```
 
-No schema change is needed for the shape itself: `GPU.Type` is already a
-free string, and `deploycheck` already asserts
+No schema change is needed for the shape: `GPU.Type` is already a free
+string, and `deploycheck` already asserts
 `resources.limits."nvidia.com/gpu" == GPU.Count`, which holds at 1.
 
 ### Considered and rejected: a non-Kubernetes deploy path
 
 A single-GPU node running plain Docker or systemd would be lighter than
 k3s plus LWS. Rejected: it forks the deploy mechanism, and every
-downstream guarantee — `deploycheck`'s manifest/deploy consistency test
-in CI, the readiness contract, Lux registration in
-[[009-lux-integration]] — is keyed on the LWS shape. One deploy path
-that is slightly heavy beats two paths that drift. Revisit only if k3s
-itself proves to cost meaningful memory out of the 115 GB budget, which
-is the one number that would change the answer.
+downstream guarantee — `deploycheck`'s consistency test in CI, the
+readiness contract, Lux registration in [[009-lux-integration]] — is
+keyed on the LWS shape. One deploy path that is slightly heavy beats two
+that drift.
 
 ## Diagram
 
@@ -140,35 +155,36 @@ flowchart LR
     direction TB
     U["one 128 GB pool<br/>CPU + GPU share it"]
   end
-  fleet -->|"tp-size 8<br/>mem-fraction of device"| A["sglang / vllm<br/>x86_64 images"]
-  gb10 -->|"tp-size 1<br/>absolute memory budget"| B["llamacpp<br/>aarch64 SM121 image"]
+  fleet -->|"tp-size 8<br/>fraction of device memory"| A["sglang / vllm<br/>amd64 image"]
+  gb10 -->|"tp-size 1<br/>absolute memory budget"| B["sglang / vllm<br/>arm64 image, same tag"]
 ```
 
 ## Acceptance criteria
 
 - **AC1** A manifest with `gpu: {type: gb10, count: 1, nodes: 1}`
-  validates, and `deploycheck` passes against an LWS that requests
+  validates, and `deploycheck` passes against an LWS requesting
   `nvidia.com/gpu: "1"` with `latere.ai/gpu-pool: gb10`.
-- **AC2** `DEPLOY.md` documents the gb10 pool: node label, driver floor
-  (r580), CUDA 13, and the `usable ≈ 115 GB` planning number with the
-  budget formula.
-- **AC3** Manifest validation requires an **explicit context-size arg**
-  on `gpu.type: gb10`, so the `kv_cache` term of the budget formula is
-  stated in the manifest instead of inherited from an engine default.
-  This is the rule that turns a silent over-commit into a CI failure: on
-  unified memory an unbounded KV cache takes the host down with it, and
-  under llama.cpp it is `--ctx-size`, not any memory-fraction flag, that
-  sets it.
-  Device-memory-fraction flags (`--mem-fraction-static`,
-  `--gpu-memory-utilization`) are rejected on this class as well. That
-  clause guards nothing today — both are SGLang/vLLM flags and neither
-  engine runs here — and exists so an aarch64 incumbent image cannot
-  land later without it.
-- **AC4** A GB10 node label and pool are described in
-  [[008-k8s-serving]] alongside the existing pools.
-- **AC5** Observability notes in [[010-observability-bench]] record that
-  device-memory metrics are absent on this class and that host memory is
-  the substitute signal.
+- **AC2** On `gpu.type: gb10`, manifest validation **requires** a
+  memory-fraction flag (`--mem-fraction-static` for SGLang,
+  `--gpu-memory-utilization` for vLLM) and rejects a value above
+  **0.80**, with an error naming the unified-memory reason. Both an
+  absent flag and an over-large one take the host down, and the absent
+  case is the likely one because it looks like every other manifest in
+  the repo.
+- **AC3** Manifest validation requires an explicit context bound on
+  `gpu.type: gb10` (`--max-model-len` for vLLM, `--context-length` for
+  SGLang), so the `kv_cache` term of the budget is stated rather than
+  inherited from an engine default.
+- **AC3a** The 0.80 ceiling is confirmed by measurement on a real GB10
+  node before this rule is treated as final. It is derived, not
+  observed, and the measurement belongs with
+  [[020-arm64-runtime-images]] AC1.
+- **AC4** Validation rejects `gpu.count > 1` or `nodes > 1` for
+  `type: gb10` — neither exists on this class.
+- **AC5** `DEPLOY.md` documents the gb10 pool: node label, driver floor
+  r580, CUDA 13, the `usable ≈ 115 GB` planning number and the formula.
+- **AC6** [[010-observability-bench]] records that device-memory metrics
+  are absent on this class and that host memory is the substitute.
 
 ## Out of scope
 
@@ -176,6 +192,3 @@ flowchart LR
   class, so a model that does not fit one node's 128 GB is not a GB10
   candidate. That is the standing rule, not a temporary block.
 - Training and post-training on this class.
-- Replacing the fleet engines with an aarch64 build. If upstream ships
-  SM121 aarch64 images later, that is a bump to
-  [[001-inference-engine-selection]], not a change here.
