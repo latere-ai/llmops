@@ -17,8 +17,9 @@ for a single-GPU host with no cluster around it.
 ## Why own the inference layer
 
 - **Weight freeze.** Upstream Hugging Face repos mutate and disappear.
-  Every model we serve is mirrored once into versioned, checksummed S3
-  prefixes and never re-downloaded from upstream.
+  Every model we serve is pinned to a revision and checksummed per file,
+  then never re-downloaded from upstream — in an S3 prefix for the fleet,
+  or in place on a host's own disk.
 - **Cost and control.** Serving on our own GPUs beats per-token router
   pricing at sustained load, and removes third-party rate limits, silent
   model swaps, and data egress to routers.
@@ -28,26 +29,35 @@ for a single-GPU host with no cluster around it.
 
 ## Target models
 
-| Model | Vendor | Class | Notes |
-|---|---|---|---|
-| MiniMax M3 | MiniMax | MoE | |
-| GLM-5.2 | Zhipu AI | MoE | |
-| Kimi K2.7 Code | Moonshot AI | MoE | |
-| DeepSeek V4 Pro | DeepSeek | MoE | blocked on hardware |
-| DeepSeek V4 Flash 0731 | DeepSeek | MoE | speculative decoding (DSpark) |
-| Kimi K3 | Moonshot AI | MoE | multimodal; blocked on hardware + license |
+One list, whichever way a model is deployed. The mode is a property of
+the model like any other, not a separate product:
+
+| Model | Vendor | Class | Hardware | Deploy | Notes |
+|---|---|---|---|---|---|
+| MiniMax M3 | MiniMax | MoE | 8x H200 | k8s | |
+| GLM-5.2 | Zhipu AI | MoE | 8x H200 | k8s | |
+| Kimi K2.7 Code | Moonshot AI | MoE | 8x H200 | k8s | |
+| DeepSeek V4 Pro | DeepSeek | MoE | 8x B200 | k8s | blocked on hardware |
+| DeepSeek V4 Flash 0731 | DeepSeek | MoE | 8x B200 | k8s | speculative decoding (DSpark) |
+| Kimi K3 | Moonshot AI | MoE | 8x B300 | k8s | multimodal; blocked on hardware + license |
+| Qwen3.8-27B | Alibaba | dense | 1x GB10 | bare-metal | multimodal; BF16, no quantization |
 
 Exact revisions, weight formats, and GPU footprints are pinned per model
 in `specs/` and in each model's manifest under `models/`. "Blocked" means
 the weights are frozen and the manifest is checked in, but no endpoint
 exists yet — see the model's spec for what the block is.
 
+Qwen3.8-27B is the one that is not frontier-scale MoE, on purpose. The
+registry serves what we choose to own, and a model small enough to run
+undamaged on a single GPU is a different product from a large one
+squeezed to fit — not a lesser version of one.
+
 ## Repo layout
 
 ```
 specs/      design specs (start at specs/README.md)
-models/     per-model manifests: pinned HF revision, S3 prefix, engine config
-deploy/     k8s LeaderWorkerSet manifests, one per model
+models/     per-model manifests: pinned HF revision, weight source, engine config
+deploy/     one artifact per model: a k8s LeaderWorkerSet, or a systemd unit
 cmd/        llmops — the one command (weights, serving, bench)
 internal/   manifest schema, mirror logic, runtime shim, bench, deploycheck
 ```
@@ -139,7 +149,7 @@ llmops bench --url http://kimi-k2-7-code.llmops.svc:8000 \
 ```sh
 make test        # go vet + go test ./...
 make cover       # same, with a ≥90% total-statement coverage gate
-make validate    # every models/*.yaml plus its deploy/*/lws.yaml
+make validate    # every models/*.yaml plus the deploy artifact it owns
 make e2e         # pull→push→verify and serve→ready→metrics
 make e2e-local   # the whole pipeline on a laptop
 ```
@@ -161,10 +171,15 @@ a per-model release gate, run by hand against the model's spec.
 
 ## Status
 
-Working today: the mirror tool, the runtime entrypoint and health shim,
-the bench harness, pinned manifests for all six models, and their
-LeaderWorkerSet deploys. The manifest/deploy consistency check runs in
-CI, and the whole pipeline is exercised end to end on a laptop.
+Working today: the `llmops` command end to end — weight fetch, freeze
+and verify, the serving entrypoint and health shim, the bench harness,
+and `install` for a bare-metal host. Pinned manifests for all seven
+models with the deploy artifact each one owns, and a consistency check
+between them that runs in CI and in `llmops validate`. The whole pipeline
+is exercised end to end on a laptop.
+
+Qwen3.8-27B's weights are frozen on a GB10 host and its manifest and unit
+are checked in; the endpoint is not up yet.
 
 Not yet done: the actual multi-hundred-GB mirrors, the GPU deployments,
 and gateway registration. The per-model specs record what each one is

@@ -23,15 +23,28 @@ router-mediated access (OpenRouter) for the models we care about:
 - **GLM-5.2** (753B MoE, ~40B active, 1M ctx, MIT)
 - **Kimi-K2.7-Code** (1T MoE, 32B active, native INT4, 256K ctx)
 - **DeepSeek-V4-Pro** (1.6T MoE, 49B active, FP4+FP8, 1M ctx, MIT)
+- **Qwen3.8-27B** (27B **dense**, multimodal, BF16, 262K ctx, Apache-2.0)
+
+The last one is deliberately unlike the others, and the registry is not
+only for frontier-scale MoE: it is what we choose to own. A model small
+enough to run undamaged on one GPU is a different product from a huge
+one squeezed to fit, not a lesser version of it ([[022-model-qwen3.8-27b]]).
 
 Three planes:
 
-1. **Weights plane** — frozen, checksummed mirrors in our S3 bucket
-   ([[002-weights-registry]]). Never re-download from HF.
-2. **Serving plane** — inference engine(s) on bare-metal k8s GPU nodes,
-   loading directly from S3, exposing OpenAI-compatible APIs
-   ([[001-inference-engine-selection]], [[003-serving-runtime]],
-   [[008-k8s-serving]]).
+1. **Weights plane** — frozen, checksummed mirrors, in our S3 bucket or
+   on a host's own disk ([[002-weights-registry]],
+   [[021-local-weight-loading]]). Never re-download from HF. The freeze
+   guarantee is a pinned revision plus per-file checksums, not the
+   storage behind them.
+2. **Serving plane** — inference engine(s) exposing OpenAI- and
+   Anthropic-compatible APIs, in either of two deploy modes: k8s on
+   multi-GPU nodes loading from S3, or an installed binary under systemd
+   on a single-GPU host ([[001-inference-engine-selection]],
+   [[003-serving-runtime]], [[008-k8s-serving]],
+   [[020-bare-metal-packaging]]). Both run the same `llmops serve` and
+   share the manifest schema, so a model's description does not depend
+   on how it is started.
 3. **Access plane** — endpoints registered in Lux, the latere model
    gateway, which owns authn, keys, usage, and cost
    ([[009-lux-integration]]). llmops does **not** re-implement gateway
@@ -39,15 +52,21 @@ Three planes:
 
 ## Constraints
 
-- All four target models are very large MoE: the minimum serving unit is an
+- The MoE targets are very large: the minimum serving unit is an
   8x H200-class node (Kimi INT4, GLM FP8, MiniMax MXFP8); DeepSeek-V4-Pro
   wants 8x B200/B300 for its native FP4 path or 2x8 H100 multi-node.
   Hardware acquisition is out of scope here (infrastructure provisioning)
   but specs must state each model's exact GPU footprint.
+- The single-GPU class is a different shape, not a smaller one: one GPU,
+  one memory pool shared with the CPU, and no cluster around it. Its
+  constraint is memory *behaviour* rather than capacity — an engine's
+  memory fraction is taken from the host's RAM too
+  ([[019-gb10-serving-target]]).
 - License hygiene per model: GLM-5.2 and DeepSeek-V4 are MIT; Kimi-K2.7 is
   modified-MIT (attribution clause); MiniMax-M3 is MiniMax Community
   License (commercial notice required; >$20M revenue needs written
-  authorization). Recorded per model in `models/*.yaml`.
+  authorization); Qwen3.8-27B is Apache-2.0, the least encumbered of the
+  set. Recorded per model in `models/*.yaml`.
 - The shared latere service conventions apply: `/healthz`, `/ready`,
   `/metrics` contract, Docker + k8s packaging, e2e-verified features.
 
