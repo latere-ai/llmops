@@ -3,12 +3,11 @@ title: "Model: Qwen3.8-27B (dense multimodal, GB10)"
 status: draft
 depends_on:
   - 019-gb10-serving-target.md
-  - 020-arm64-runtime-images.md
+  - 020-bare-metal-packaging.md
   - 021-local-weight-loading.md
 affects:
   - models/qwen3.8-27b.yaml
   - deploy/qwen3.8-27b/
-  - Dockerfile.vllm
   - README.md
 effort: medium
 created: 2026-08-28
@@ -54,8 +53,10 @@ If that is wrong, this spec is where to say so.
 
 ## Engine
 
-**vLLM**, on the `v0.28.0` image this spec's work bumped
-`Dockerfile.vllm` to.
+**vLLM v0.28.0**, installed on the host as a pinned virtualenv per
+[[020-bare-metal-packaging]] — there is no container in this deploy
+mode. The same version is pinned in `Dockerfile.vllm` for the fleet, so
+the two modes do not drift apart on engine version.
 
 The checkpoint's `config.json` declares
 `architectures: ["Qwen3_5ForConditionalGeneration"]` with
@@ -143,6 +144,7 @@ revision: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
 format: bf16
 license: apache-2.0
 runtime: vllm
+deploy: bare-metal
 load: local
 local_path: /var/lib/openllms/Qwen/Qwen3.8-27B/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/
 gpu: { type: gb10, count: 1, nodes: 1 }
@@ -152,11 +154,15 @@ args:
   - --gpu-memory-utilization=0.65
 ```
 
+This is the first manifest in the registry with `deploy: bare-metal`, so
+it is also the first exercise of [[020-bare-metal-packaging]]'s unit
+file and install path.
+
 ## Acceptance criteria
 
 - **AC1** `models/qwen3.8-27b.yaml` validates, and `deploycheck` passes
-  against `deploy/qwen3.8-27b/lws.yaml` on the gb10 pool with
-  `nvidia.com/gpu: "1"`.
+  against `deploy/qwen3.8-27b/qwen3.8-27b.service` — the bare-metal arm
+  of the check, with no LWS manifest present for this model.
 - **AC2** The endpoint answers OpenAI `/v1/chat/completions` and
   `/anthropic/v1/messages` under the manifest name `qwen3.8-27b`.
 - **AC3** **Vision works.** An image request returns a grounded answer
