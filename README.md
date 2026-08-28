@@ -29,8 +29,11 @@ for a single-GPU host with no cluster around it.
 
 ## Target models
 
-One list, whichever way a model is deployed. The mode is a property of
-the model like any other, not a separate product:
+One list, whichever way a model is deployed. **Deploy** is how each one
+is run *today*, not a restriction on it — the mode is a manifest field,
+and deploy mode and hardware are independent axes. A GB10 box can join a
+cluster; an H200 host can be run bare-metal for a one-off. Switching a
+model is a one-line manifest edit plus the artifact that mode uses.
 
 | Model | Vendor | Class | Hardware | Deploy | Notes |
 |---|---|---|---|---|---|
