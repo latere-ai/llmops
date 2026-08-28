@@ -1,5 +1,26 @@
 # Runtime image: SGLang engine + open-llms entrypoint (specs/003).
 # Engine version pinned per specs/001 — bump deliberately.
+#
+# SGLANG_IMAGE selects the base. Two images are built from this one file
+# because they differ only in that base:
+#
+#   default  lmsysorg/sglang:v0.5.16-cu129        -> open-llms-runtime-sglang
+#   K3       lmsysorg/sglang:kimi-k3-...          -> open-llms-runtime-sglang-k3
+#
+# They stay separate *images* on purpose (specs/018 AC4): K3 support lives
+# in a CUDA 13 branch build needing an r580+ driver, and folding it into
+# the shared image would impose that driver on the h200/b200 pools for a
+# model that cannot run there anyway. That is a base-image difference, not
+# a Dockerfile difference — hence one file, two --build-arg invocations.
+#
+# v0.5.16 is the floor for DeepSeek-V4-Flash-0731's DSpark path
+# (specs/017). The previous pin, v0.5.15.post1-cu126, was never a real
+# upstream tag — cu126 variants stop before v0.5.14.
+#
+# This ARG must stay above the first FROM: an ARG declared after a stage's
+# instructions is scoped to that stage, and the later FROM cannot see it.
+ARG SGLANG_IMAGE=lmsysorg/sglang:v0.5.16-cu129
+
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -7,10 +28,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /out/runtime ./cmd/runtime
 
-# v0.5.16 is the floor for DeepSeek-V4-Flash-0731's DSpark path
-# (specs/017). The previous pin, v0.5.15.post1-cu126, was never a real
-# upstream tag — cu126 variants stop before v0.5.14.
-FROM lmsysorg/sglang:v0.5.16-cu129
+FROM ${SGLANG_IMAGE}
 COPY --from=build /out/runtime /usr/local/bin/runtime
 # s5cmd for nvme-cache weight sync from S3.
 RUN pip install --no-cache-dir huggingface_hub[hf_transfer] \

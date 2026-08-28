@@ -8,7 +8,7 @@ affects:
   - models/kimi-k3.yaml
   - deploy/kimi-k3/
   - internal/deploycheck/
-  - Dockerfile.sglang-k3
+  - Dockerfile.sglang
 effort: large
 created: 2026-08-02
 updated: 2026-08-02
@@ -118,9 +118,11 @@ as [[006-model-minimax-m3]] does.
 3. `deploycheck` validates `workerTemplate` — image, GPU limit, and
    presence — whenever `gpu.nodes > 1`, with a test that fails without
    the rule. Closes the gap the H200 fallback would otherwise walk into.
-4. `Dockerfile.sglang-k3` builds `open-llms-runtime-sglang-k3` from the
-   pinned CUDA 13 K3 image; `make release` publishes it alongside the
-   others. The shared `open-llms-runtime-sglang` image is **not** bumped
+4. `Dockerfile.sglang` builds `open-llms-runtime-sglang-k3` from the
+   pinned CUDA 13 K3 image, selected with
+   `--build-arg SGLANG_IMAGE=…`; the two images differ only in their
+   base, so they share one Dockerfile. `make release` publishes it
+   alongside the others. The shared `open-llms-runtime-sglang` image is **not** bumped
    to cu130 — that would force an r580+ driver on the h200/b200 pools
    for the sake of a model that does not run there.
 5. Serves on the 8x B300 node via LWS. `--mamba-full-memory-ratio` is

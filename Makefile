@@ -70,7 +70,7 @@ e2e:
 
 images:
 	docker build -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:dev .
-	docker build -f Dockerfile.sglang-k3 -t $(REGISTRY)/open-llms-runtime-sglang-k3:dev .
+	docker build -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/open-llms-runtime-sglang-k3:dev .
 	docker build -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:dev .
 	docker build -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:dev .
 
@@ -80,7 +80,7 @@ images:
 release:
 	@test -n "$(VERSION)" || { echo "usage: make release VERSION=vX.Y.Z [REGISTRY=...]"; exit 1; }
 	docker build --platform linux/amd64 -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:$(VERSION) .
-	docker build --platform linux/amd64 -f Dockerfile.sglang-k3 -t $(REGISTRY)/open-llms-runtime-sglang-k3:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/open-llms-runtime-sglang-k3:$(VERSION) .
 	docker build --platform linux/amd64 -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:$(VERSION) .
 	docker build --platform linux/amd64 -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:$(VERSION) .
 	docker push $(REGISTRY)/open-llms-runtime-sglang:$(VERSION)
