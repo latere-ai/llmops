@@ -9,6 +9,7 @@
 //	llmops list     --bucket <s3://bucket | path>
 //	llmops serve    --manifest <manifest.yaml>
 //	llmops validate <models-dir | manifest.yaml>
+//	llmops install  --manifest <manifest.yaml>
 //	llmops bench    --url <base> --model <id>
 //	llmops version
 //
@@ -52,6 +53,7 @@ weights
 serving
   serve    --manifest <manifest.yaml>          run a model
   validate <models-dir | manifest.yaml>        check manifests and deploys
+  install  --manifest <manifest.yaml>          place the unit + manifest on this host
   bench    --url <base> --model <id>           measure a live endpoint
 
   version                                      build version and commit`
@@ -81,6 +83,8 @@ func run(args []string, out, errw io.Writer) int {
 			return runWeights(cmd, rest, out, errw)
 		case "serve", "validate":
 			return runServing(cmd, rest, out, errw)
+		case "install":
+			return runInstall(rest, out, errw)
 		case "bench":
 			return runBench(rest, out, errw)
 		case "version":
@@ -134,7 +138,7 @@ func versionString() string {
 // usage text and the switch cannot drift apart.
 var dispatch = []string{
 	"pull", "freeze", "push", "verify", "list",
-	"serve", "validate", "bench", "version",
+	"serve", "validate", "install", "bench", "version",
 }
 
 func newMirror(errw io.Writer) *mirror.Mirror {
