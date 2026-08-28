@@ -4,12 +4,11 @@ status: draft
 depends_on:
   - 017-model-deepseek-v4-flash-0731.md
   - 019-gb10-serving-target.md
-  - 020-llamacpp-runtime.md
+  - 020-arm64-runtime-images.md
   - 021-local-weight-loading.md
 affects:
   - models/deepseek-v4-flash-0731-q2.yaml
   - deploy/deepseek-v4-flash-0731-q2/
-  - internal/manifest/
   - README.md
 effort: medium
 created: 2026-08-28
@@ -29,33 +28,31 @@ single [[019-gb10-serving-target]] node the same checkpoint only fits at
 materially different model.
 
 The README's stated reason for owning this layer instead of renting a
-router includes removing "silent model swaps". Serving both of these
-under one model id would be exactly that swap, performed by us.
+router includes removing "silent model swaps". Serving both under one
+model id would be exactly that swap, performed by us.
 
-**Decision: this is a separate, separately-named endpoint. The two are
-never routed under one Lux model id, and the name states the tier.**
+**Decision: a separate, separately-named endpoint. The two are never
+routed under one Lux model id, and the name states the tier.**
 
 ```
 deepseek-v4-flash-0731       FP4/FP8, 8x B200   (017)
-deepseek-v4-flash-0731-q2    ~2-3 bit, 1x GB10  (this spec)
+deepseek-v4-flash-0731-q2    ~2 bit, 1x GB10    (this spec)
 ```
 
 Named for the quantization, not the hardware: the GPU is an
-implementation detail a caller does not have, and the precision is the
-thing that changes the answers they get.
+implementation detail a caller does not have; the precision changes the
+answers they get.
 
 ## Gate: is this tier wanted at all?
 
 Unlike [[022-model-qwen3.8-27b]], which lands clean, this endpoint is a
 product decision before it is an engineering one. It offers a much
-larger model at a precision below what its own training targeted, on a
-node it fully occupies.
+larger model below the precision its own training targeted, on a node it
+fully occupies.
 
-**This spec must not be dispatched until that call is made.** The
-engineering below is correct either way; the question is whether a
-reduced-precision tier belongs in the registry. If the answer is no, the
-GB10 node serves [[022-model-qwen3.8-27b]] and this spec is closed
-unimplemented rather than left open.
+**Do not dispatch this spec until that call is made.** If the answer is
+no, the GB10 node serves [[022-model-qwen3.8-27b]] and this spec is
+closed unimplemented rather than left open.
 
 ## Facts (verified 2026-08-28)
 
@@ -63,106 +60,113 @@ unimplemented rather than left open.
   13B active MoE, MIT. Per [[017-model-deepseek-v4-flash-0731]]: FP4
   experts, FP8 attention/dense, 166.9 GB, 1M context.
 - **The checkpoint is quantization-aware trained with routed experts
-  stored natively in MXFP4** — roughly 4 bits. This is commonly cited as
+  stored natively in MXFP4** — roughly 4 bits. This is commonly read as
   licence to go lower. It is not: QAT makes the model robust *at its
-  native 4 bits*. Every step below that is ordinary quantization loss,
-  and 2-bit is two steps below. This cuts against the smallest quants,
-  not for them.
+  native 4 bits*. Every step below is ordinary quantization loss. This
+  cuts against the smallest quants, not for them.
+- The vendor checkpoint at 166.9 GB does not fit 128 GB, and neither
+  would a 4-bit AWQ/GPTQ requantization at roughly 150 GB. **Sub-4-bit
+  is required**, and in practice that means GGUF.
 - GGUF conversions: `unsloth/DeepSeek-V4-Flash-0731-GGUF`, revision
   `fbbb5b93fb787c21338159b0af3318bb3f4d9768`, MIT.
+- The **DSpark draft head is a separate file**: 10.9 GB at Q8_0,
+  11.3 GB at BF16. Additive to every row below.
 
-| Variant | Size | Fits ~115 GB usable |
-|---|---|---|
-| UD-IQ1_S | 82.5 GB | yes |
-| UD-IQ1_M | 86.9 GB | yes |
-| UD-IQ2_XXS / UD-IQ2_M | 90.9 GB | yes |
-| UD-Q2_K_XL | 96.8 GB | yes |
-| **UD-IQ3_XXS** | **104 GB** | **yes, ~11 GB spare** |
-| UD-IQ3_S | 116 GB | no |
-| UD-Q3_K_M / UD-Q3_K_XL | 128 GB | no |
-| UD-IQ4_XS / UD-IQ4_NL | 137 GB | no |
-| UD-Q4_K_XL | 155 GB | no |
-| UD-Q8_K_XL | 162 GB | no |
+## What fits
 
-- The **DSpark draft head is a separate file**: 10.9 GB at Q8_0, 11.3 GB
-  at BF16. It is additive to every row above.
+[[019-gb10-serving-target]] AC2 caps the engine's memory fraction at
+0.80 of the unified pool, so the engine may address about **102 GB** —
+not the full 115 GB. That ceiling, not the raw pool, is the constraint:
+
+| Variant | Size | + draft | Under 102 GB |
+|---|---|---|---|
+| UD-IQ1_S | 82.5 GB | 93.4 GB | yes |
+| UD-IQ2_XXS / UD-IQ2_M | 90.9 GB | 101.8 GB | yes, barely with draft |
+| UD-Q2_K_XL | 96.8 GB | 107.7 GB | alone only |
+| UD-IQ3_XXS | 104 GB | 114.9 GB | **no** |
+| UD-IQ3_S and above | ≥116 GB | — | no |
+
+The 0.80 ceiling rules out the 3-bit quants entirely. That ceiling is
+derived rather than measured ([[019-gb10-serving-target]] AC3a); if
+measurement raises it, UD-IQ3_XXS comes back into range and this table
+is recomputed.
 
 ## Quantization decision
 
-Two configurations fit, and they trade quality against speed:
+Two configurations fit today:
 
 ```
-A   UD-IQ3_XXS  104.0 GB,  no draft head    → ~11.0 GB for KV + activations
-B   UD-IQ2_M     90.9 GB + 10.9 GB draft    → ~13.2 GB for KV + activations
+A   UD-Q2_K_XL   96.8 GB, no draft head   -> best weights that fit alone
+B   UD-IQ2_M     90.9 GB + 10.9 GB draft  -> speculative decoding, 101.8 GB
 ```
 
-**Default is A.** The draft head buys throughput, not quality, and the
-QAT reasoning above says the 3-bit step is where the weights are still
-close to what the model was trained to tolerate. An endpoint whose only
-reason to exist is "a bigger model" should not spend its quality budget
-on decode speed.
+**Default is A**, on the same reasoning that rules out going lower than
+necessary: the draft head buys decode speed, not quality, and an
+endpoint whose only justification is "a bigger model" should spend its
+budget on weights. B is the choice if measured throughput on A is too
+low to be useful, which is a real possibility worth testing before
+settling.
 
-**A is conditional on one number this spec does not have.** Qwen's KV
-cache is computable from its published head geometry
-([[022-model-qwen3.8-27b]]); V4-Flash's is not stated in sources checked
-here. If measured KV at the target context exceeds ~11 GB, A does not
-fit and the choice becomes B, or A at a reduced `--ctx-size`.
+Neither configuration offers 1M context. `context_max` states what is
+left after the weights, rather than inheriting 017's value.
 
-Resolving this is AC1, and it gates the manifest. Do not pin a quant
-before measuring.
+## Engine and the open technical risk
 
-Note that 1M context is not on offer at either configuration. This tier
-serves a context ceiling set by what is left after the weights, and
-`context_max` states that honestly rather than inheriting 017's value.
+**vLLM**, per [[020-arm64-runtime-images]] — no new engine is needed for
+this class. vLLM's GGUF support covers the imatrix types (IQ1_M, IQ1_S,
+IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_XS, IQ4_NL) and the k-quants
+(Q2_K through Q6_K), so both configurations are expressible.
+
+**The risk is coverage, not format.** vLLM supporting a quantization
+*type* is not the same as vLLM running a 304B MoE with this
+architecture from GGUF, and its GGUF path is less exercised than
+llama.cpp's. This is the single thing most likely to sink the spec, so
+it is AC1.
+
+Speculative decoding, if configuration B is chosen, is vLLM's
+`--speculative-config '{"method":"dspark"}'` (≥0.27, and the image is
+now v0.28.0). Whether that path accepts a **separate GGUF draft file**
+rather than an in-checkpoint head is unverified and is part of AC1.
 
 ## Provenance
 
 Unlike [[022-model-qwen3.8-27b]], converting this ourselves is not
 affordable — a 284B imatrix quantization is its own compute project. So
 `hf_repo` is the **third-party GGUF repo**, pinned at the SHA above, and
-the freeze rules from [[021-local-weight-loading]] apply to it as the
-source of record.
+[[021-local-weight-loading]]'s freeze rules apply to it as the source of
+record.
 
 `license_note` must say plainly that these weights are a third-party
 requantization of an MIT vendor checkpoint, not the vendor's own
 artifact. That is a different trust position from every other model in
-the registry and the manifest is where it is recorded.
-
-## Speculative decoding is not DSpark here
-
-017 uses SGLang's `--speculative-algorithm DSPARK`, which reads the
-draft head out of the target checkpoint and forbids a separate draft
-path. llama.cpp does generic speculative decoding via `--model-draft`
-pointing at a **separate GGUF file**, which is the exact shape
-`validateDSpark` rejects.
-
-[[020-llamacpp-runtime]] AC3 scopes that validation to `runtime: sglang`
-for this reason. Without it, configuration B cannot be expressed.
+the registry, and the manifest is where it is recorded.
 
 ## Acceptance criteria
 
-- **AC1** KV cache at the intended `--ctx-size` is measured on the GB10
-  node and recorded in this spec, and the A/B choice above is resolved
-  against it before the manifest is pinned.
-- **AC2** `models/deepseek-v4-flash-0731-q2.yaml` validates with
-  `runtime: llamacpp`, `load: local`, `gpu: {type: gb10, count: 1,
-  nodes: 1}`, and a `context_max` that reflects the measured budget
-  rather than 017's 1M.
-- **AC3** The endpoint is registered in Lux under
-  `deepseek-v4-flash-0731-q2` and a test asserts it is **not** aliased
-  to, or routed as a fallback for, `deepseek-v4-flash-0731`.
-- **AC4** `license_note` records the third-party requantization, and
-  README's table shows the tier and its GPU class as a distinct row.
-- **AC5** A quality comparison against 017's endpoint on the coding and
+- **AC1** vLLM on the arm64 image loads this checkpoint from GGUF on a
+  GB10 node and answers correctly, before anything else here is built.
+  If it does not, this spec either grows a llama.cpp engine — reopening
+  what [[019-gb10-serving-target]] closed — or is abandoned. Settle this
+  first; everything below is wasted if it fails.
+- **AC2** KV cache at the intended context is measured and recorded
+  here, and the A/B choice is resolved against it before the manifest is
+  pinned.
+- **AC3** `models/deepseek-v4-flash-0731-q2.yaml` validates with
+  `runtime: vllm`, `load: local`, `gpu: {type: gb10, count: 1, nodes: 1}`,
+  a memory fraction within the 0.80 bound, and a `context_max`
+  reflecting the measured budget rather than 017's 1M.
+- **AC4** The endpoint registers in Lux as `deepseek-v4-flash-0731-q2`,
+  and a test asserts it is **not** aliased to, or routed as a fallback
+  for, `deepseek-v4-flash-0731`.
+- **AC5** `license_note` records the third-party requantization, and
+  README shows the tier and its GPU class as a distinct row.
+- **AC6** A quality comparison against 017's endpoint on the coding and
   agentic axis 017 names, published with the endpoint. A reduced tier
   without a measured gap is an unquantified downgrade.
-- **AC6** If configuration B is chosen, the draft file is covered by the
-  same `_manifest.json` and a llamacpp manifest carrying `--model-draft`
-  validates.
 
 ## Out of scope
 
 - Producing our own imatrix quantization of the base checkpoint.
 - Serving 1M context on this class.
-- Retiring 017. The B200 endpoint is the reference tier and this one
-  does not replace it.
+- Retiring 017. The B200 endpoint is the reference tier; this does not
+  replace it.
