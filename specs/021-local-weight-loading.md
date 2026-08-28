@@ -90,8 +90,10 @@ local store is an operator problem, and silently repairing it would
 defeat the freeze. This is the one behavioural difference between the
 modes, and it is deliberate.
 
-The `flock` on the directory still applies: concurrent pods on one node
-must not verify a directory that a `mirror` run is writing.
+The `flock` on the directory still applies, in either deploy mode: a
+serving process must not verify a directory that a `mirror` run is
+writing, whether the two are pods on a node or a systemd unit and an
+operator's shell.
 
 ### `mirror freeze`
 
