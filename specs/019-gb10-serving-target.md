@@ -1,9 +1,8 @@
 ---
-title: "GB10 serving target (single GPU, unified memory)"
+title: "GB10 serving target (single GPU, unified memory, bare metal)"
 status: draft
 depends_on:
   - 003-serving-runtime.md
-  - 008-k8s-serving.md
 affects:
   - internal/manifest/
   - internal/deploycheck/
@@ -16,25 +15,28 @@ author: changkun
 dispatched_task_id: null
 ---
 
-# GB10 serving target (single GPU, unified memory)
+# GB10 serving target (single GPU, unified memory, bare metal)
 
 ## Overview
 
-Every node class the fleet serves on today is the same shape: an x86_64
-host with 4-8 discrete GPUs, each with its own HBM, tensor-parallel
-across the node. GB10 is a different shape, and it breaks assumptions
-that are currently implicit rather than written down.
+Every node the fleet serves on is the same shape: an x86_64 host with
+4-8 discrete GPUs, each with its own HBM, tensor-parallel across the
+node, scheduled by Kubernetes. GB10 differs in three ways at once — one
+GPU, one memory pool shared with the CPU, an arm64 host — and it is not
+a fleet node at all. It is a **lab machine**: a single box serving
+models directly, with no cluster to schedule it and no second node to
+fail over to.
 
-It does **not** break the engine choice. Both engines run here — see
-"What does not change" below. The cost of this class is memory
-behaviour, not software availability.
+This spec states what that class costs and how a model runs on it.
+
+It does **not** change the engine choice. Both engines already publish
+arm64 builds, so [[001-inference-engine-selection]] stands unamended.
 
 ## Facts (verified 2026-08-28)
 
-- **One GPU per node.** GB10 is a single Blackwell die fused with an
-  arm64 Grace CPU. There is no intra-node tensor parallelism: `--tp-size`
-  is 1, and every multi-GPU sharding flag the fleet manifests carry is
-  inapplicable.
+- **One GPU.** GB10 is a single Blackwell die fused with an arm64 Grace
+  CPU. `--tp-size` is 1, and every multi-GPU sharding flag the fleet
+  manifests carry is inapplicable.
 - **Compute capability SM121**, CUDA 13.0, driver floor r580.
 - **128 GB LPDDR5X unified** between CPU and GPU. Around 119 GB is
   addressable in practice; plan against **~115 GB** with the OS and
@@ -42,105 +44,116 @@ behaviour, not software availability.
 - `nvidia-smi` reports `[N/A]` for `memory.total`, `memory.free` and
   `memory.used` on this part. GPU memory accounting goes through host
   `/proc/meminfo`, not the device.
-- Local NVMe on this class reads at roughly 5 GB/s, which sets the
-  cold-start floor once weights are resident.
+- Local NVMe reads at roughly 5 GB/s, which sets the cold-start floor
+  once weights are resident on disk.
+- Both engine images publish `linux/arm64` at the versions this repo
+  pins; vLLM has shipped aarch64 CUDA wheels since v0.13.0 and builds
+  SM121 kernels.
 
-## What does not change
+## Decision: this class uses the bare-metal deploy mode
 
-Both engine images already publish `linux/arm64` at the versions the
-repo pins, and both build SM121 kernels:
+The repo supports **two deploy modes**, and they coexist:
 
-| Image | arm64 | Note |
+| Mode | Used by | Artifact |
 |---|---|---|
-| `lmsysorg/sglang:v0.5.16-cu129` | yes | the pinned tag is multi-arch today |
-| `vllm/vllm-openai:v0.28.0` | yes | bumped from v0.25.1 for this class |
+| Kubernetes | the fleet, unchanged | container image + `deploy/<name>/lws.yaml` |
+| Bare metal | this class | installed binary + systemd unit |
 
-vLLM's build config lists compute capability 12.1 (SM121), and it has
-shipped aarch64 CUDA wheels since v0.13.0. So this class needs **no new
-engine**: it uses the same SGLang-primary, vLLM-second choice recorded in
-[[001-inference-engine-selection]], and that decision record stands
-unamended.
+The Kubernetes path stays exactly as it is; nothing in
+[[008-k8s-serving]] changes. What is new is a second mode, defined in
+[[020-bare-metal-packaging]], and **GB10 is its first user rather than
+its only possible one** — any single-GPU host without a cluster can use
+it.
 
-What the images do not cover is our own layer on top of them — see
-[[020-arm64-runtime-images]].
+**A GB10 model runs as a host process under systemd, launched by the
+same `runtime serve --manifest` entrypoint the fleet uses.**
 
-## What does change
+The Kubernetes path solves fleet problems: scheduling across a pool,
+restarting on another node, rolling a version without downtime, packing
+models onto shared hardware. A lab box has one GPU, one model at a time,
+and no pool. k3s plus a LeaderWorkerSet here is a scheduler with nothing
+to schedule, wrapped around a process systemd already supervises.
 
-### 1. Unified memory has no separate device budget
+Everything above the deploy layer is kept unchanged:
+
+| Kept | Why it still earns its place |
+|---|---|
+| `models/<name>.yaml` | one source of truth for model config, same schema |
+| `mirror` + `_manifest.json` | pinned revisions, per-file checksums; provenance does not need a cluster |
+| `runtime serve` | `/healthz`, `/ready`, `/metrics`, OpenAI passthrough, and the Anthropic surface at `/anthropic/v1/messages` |
+| `bench` | an HTTP client; it does not care what started the server |
+| `load: local` | [[021-local-weight-loading]], now the only sensible mode here |
+
+Not used by this class: the LeaderWorkerSet manifest, the
+`nvidia.com/gpu` resource limit, the `latere.ai/gpu-pool` node label,
+and the runtime container image. Those remain the Kubernetes mode's
+artifacts and are untouched; [[020-bare-metal-packaging]] defines this
+mode's equivalents.
+
+### The consistency check applies to both modes
+
+`deploycheck` asserts a model's manifest agrees with its
+`deploy/<name>/lws.yaml`. That guarantee is why a manifest change cannot
+silently diverge from what actually runs, and it should hold in either
+mode. For a bare-metal model it checks the **systemd unit** instead:
+that the unit names this model's manifest path and the expected binary.
+The check dispatches on the model's deploy mode, so neither mode loses
+coverage and neither is checked against the wrong artifact.
+
+## What the class costs
+
+### Unified memory has no separate device budget
 
 On a discrete-HBM node, `--mem-fraction-static 0.90` reserves 90% of
 *device* memory and the host keeps its own RAM. On GB10 there is one
 pool, so the same flag reserves 90% of everything the operating system
-also needs, and the node dies rather than degrades.
-
-The budget a model must be planned against is:
+also needs, and the box dies rather than degrades.
 
 ```
 usable  =  total_unified  −  os_and_services  −  engine_overhead
 usable  ≥  weights  +  kv_cache  +  activations
 ```
 
-Every GB10 model spec states its own `weights + kv_cache` arithmetic
-against `usable ≈ 115 GB`.
-
 The fraction flag cannot simply be banned: both engines size their KV
 cache from it, and an **absent** flag is worse than a bad one, because
-the engine then applies its own default (vLLM's is 0.90) against the
-whole 128 GB pool and leaves the host about 13 GB. So on this class the
-flag is **required and bounded**:
+the engine applies its own default (vLLM's is 0.90) against the whole
+128 GB pool and leaves the host about 13 GB. So the flag is **required
+and bounded**:
 
 ```
-fraction  x  128 GB  <=  102 GB      ->   fraction <= 0.80
+fraction  ×  128 GB  ≤  102 GB      →   fraction ≤ 0.80
 ```
 
-0.80 leaves roughly 26 GB for the operating system, the container
-runtime and page cache. That is a schema rule a manifest can be checked
-against, unlike "state an absolute budget", which neither engine
-accepts.
+0.80 leaves roughly 26 GB for the OS, page cache, and the desktop
+session this class often has running. Both engines *fill* the fraction
+they are given rather than staying under it, so the fraction sets actual
+consumption: a model needing less should ask for less. See
+[[022-model-qwen3.8-27b]].
 
-### 2. GPU memory is not observable through the device
+### GPU memory is not observable through the device
 
 [[010-observability-bench]] assumes GPU memory metrics come from the
-device. On GB10 they do not exist there. Memory pressure has to be read
-from host memory, and any dashboard panel keyed on device memory renders
+device. Here they do not exist there. Memory pressure must be read from
+host memory, and any dashboard panel keyed on device memory renders
 empty rather than wrong — which is worse, because it looks like a scrape
 failure.
 
-### 3. One GPU, so the failure mode is different
+### One GPU, so the failure mode is different
 
-At `count: 1` there is no partial degradation: the node serves one model
-or none. A second model on the same node contends for the same pool
-rather than for a free GPU. One model per GB10 node is the rule.
+There is no partial degradation: the box serves one model or none. A
+second model contends for the same pool rather than for a free GPU.
+**One model per GB10 box** is a rule rather than a default, because
+nothing in the schema would otherwise stop a second unit from starting.
 
-## Decision
-
-**GB10 is a normal `gpu.type` with `count: 1, nodes: 1`, deployed
-through the existing LeaderWorkerSet path.**
+## Manifest shape
 
 ```yaml
 gpu: { type: gb10, count: 1, nodes: 1 }
 ```
 
-```yaml
-nodeSelector:
-  latere.ai/gpu-pool: gb10
-resources:
-  limits:
-    nvidia.com/gpu: "1"
-```
-
-No schema change is needed for the shape: `GPU.Type` is already a free
-string, and `deploycheck` already asserts
-`resources.limits."nvidia.com/gpu" == GPU.Count`, which holds at 1.
-
-### Considered and rejected: a non-Kubernetes deploy path
-
-A single-GPU node running plain Docker or systemd would be lighter than
-k3s plus LWS. Rejected: it forks the deploy mechanism, and every
-downstream guarantee — `deploycheck`'s consistency test in CI, the
-readiness contract, Lux registration in [[009-lux-integration]] — is
-keyed on the LWS shape. One deploy path that is slightly heavy beats two
-that drift.
+`GPU.Type` is already a free string, so the shape needs no schema
+change. On this class the field is **descriptive**: it records what the
+model needs and no longer projects into a Kubernetes resource request.
 
 ## Diagram
 
@@ -148,47 +161,60 @@ that drift.
 flowchart LR
   subgraph fleet["fleet node (x86_64)"]
     direction TB
-    G1["GPU 0..7<br/>discrete HBM"]
-    H1["host RAM<br/>separate pool"]
+    F1["GPU 0..7, discrete HBM"]
+    F2["host RAM, separate pool"]
+    F3["k8s + LeaderWorkerSet"]
   end
-  subgraph gb10["GB10 node (arm64)"]
+  subgraph lab["GB10 lab box (arm64)"]
     direction TB
-    U["one 128 GB pool<br/>CPU + GPU share it"]
+    L1["one GPU"]
+    L2["one 128 GB pool<br/>CPU + GPU share it"]
+    L3["systemd unit"]
   end
-  fleet -->|"tp-size 8<br/>fraction of device memory"| A["sglang / vllm<br/>amd64 image"]
-  gb10 -->|"tp-size 1<br/>absolute memory budget"| B["sglang / vllm<br/>arm64 image, same tag"]
+  F3 --> R1["runtime serve --manifest"]
+  L3 --> R2["runtime serve --manifest"]
+  R1 --> E["same manifest schema<br/>same health + Anthropic surface"]
+  R2 --> E
 ```
 
 ## Acceptance criteria
 
 - **AC1** A manifest with `gpu: {type: gb10, count: 1, nodes: 1}`
-  validates, and `deploycheck` passes against an LWS requesting
-  `nvidia.com/gpu: "1"` with `latere.ai/gpu-pool: gb10`.
-- **AC2** On `gpu.type: gb10`, manifest validation **requires** a
-  memory-fraction flag (`--mem-fraction-static` for SGLang,
-  `--gpu-memory-utilization` for vLLM) and rejects a value above
-  **0.80**, with an error naming the unified-memory reason. Both an
-  absent flag and an over-large one take the host down, and the absent
-  case is the likely one because it looks like every other manifest in
-  the repo.
-- **AC3** Manifest validation requires an explicit context bound on
-  `gpu.type: gb10` (`--max-model-len` for vLLM, `--context-length` for
-  SGLang), so the `kv_cache` term of the budget is stated rather than
-  inherited from an engine default.
-- **AC3a** The 0.80 ceiling is confirmed by measurement on a real GB10
-  node before this rule is treated as final. It is derived, not
-  observed, and the measurement belongs with
-  [[020-arm64-runtime-images]] AC1.
-- **AC4** Validation rejects `gpu.count > 1` or `nodes > 1` for
-  `type: gb10` — neither exists on this class.
-- **AC5** `DEPLOY.md` documents the gb10 pool: node label, driver floor
-  r580, CUDA 13, the `usable ≈ 115 GB` planning number and the formula.
-- **AC6** [[010-observability-bench]] records that device-memory metrics
-  are absent on this class and that host memory is the substitute.
+  validates, and validation **rejects** `count > 1` or `nodes > 1` for
+  this type — neither exists on this class.
+- **AC2** On `gpu.type: gb10`, validation **requires** a memory-fraction
+  flag (`--mem-fraction-static` for SGLang, `--gpu-memory-utilization`
+  for vLLM) and rejects a value above **0.80**, with an error naming the
+  unified-memory reason. Both an absent flag and an over-large one take
+  the box down, and the absent case is the likely one because it looks
+  like every other manifest in the repo.
+- **AC3** Validation requires an explicit context bound on this class
+  (`--max-model-len` for vLLM, `--context-length` for SGLang), so the
+  `kv_cache` term is stated rather than inherited from an engine
+  default.
+- **AC4** The 0.80 ceiling is confirmed by measurement on a real GB10
+  box before it is treated as final. It is derived, not observed.
+- **AC5** `deploycheck` validates a bare-metal model against its systemd
+  unit rather than an LWS manifest, and a test fails when the unit names
+  a different manifest or binary than the model expects.
+- **AC6** Validation rejects a `gpu.type: gb10` model that also carries
+  a `deploy/<name>/lws.yaml`, so the two deploy modes cannot both claim
+  one model.
+- **AC7** `DEPLOY.md` documents this class as a distinct operating mode:
+  driver floor r580, CUDA 13, `usable ≈ 115 GB`, the budget formula, and
+  the one-model-per-box rule.
+- **AC8** [[010-observability-bench]] records that device-memory metrics
+  are absent here and that host memory is the substitute signal.
 
 ## Out of scope
 
-- Multi-GB10 serving. No RDMA fabric is assumed between nodes of this
-  class, so a model that does not fit one node's 128 GB is not a GB10
-  candidate. That is the standing rule, not a temporary block.
-- Training and post-training on this class.
+- Multi-GB10 serving. A model that does not fit one box's 128 GB is not
+  a candidate for this class. That is the standing rule, not a temporary
+  block.
+- Training and post-training.
+- Changing the Kubernetes mode. The fleet path is untouched by this
+  spec; [[020-bare-metal-packaging]] adds a mode beside it, not instead
+  of it.
+- Running a GB10 box under Kubernetes. Possible, and deliberately not
+  done — if it is ever wanted, the deploy mode is a manifest field, so
+  it is a one-line change rather than a new spec.
