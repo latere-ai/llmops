@@ -212,6 +212,94 @@ func TestEngineImage(t *testing.T) {
 	}
 }
 
+// gb10Manifest is a minimal valid single-GPU unified-memory model.
+func gb10Manifest() *Manifest {
+	m := valid()
+	m.Runtime = RuntimeVLLM
+	m.Deploy = DeployBareMetal
+	m.GPU = GPU{Type: GPUTypeGB10, Count: 1, Nodes: 1}
+	m.Args = []string{"--max-model-len=262144", "--gpu-memory-utilization=0.65"}
+	return m
+}
+
+func TestValidateGB10OK(t *testing.T) {
+	if err := gb10Manifest().Validate(); err != nil {
+		t.Fatalf("valid gb10 manifest rejected: %v", err)
+	}
+	// The SGLang flag names differ; both engines must be expressible.
+	m := gb10Manifest()
+	m.Runtime = RuntimeSGLang
+	m.Args = []string{"--context-length=262144", "--mem-fraction-static=0.80"}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("valid sglang gb10 manifest rejected: %v", err)
+	}
+}
+
+func TestValidateGB10Rejects(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(*Manifest)
+		want string
+	}{
+		{"two gpus", func(m *Manifest) { m.GPU.Count = 2 }, "single-GPU"},
+		{"two nodes", func(m *Manifest) { m.GPU.Nodes = 2 }, "single-GPU"},
+		{"no fraction", func(m *Manifest) {
+			m.Args = []string{"--max-model-len=262144"}
+		}, "--gpu-memory-utilization"},
+		{"fraction too high", func(m *Manifest) {
+			m.Args = []string{"--max-model-len=262144", "--gpu-memory-utilization=0.90"}
+		}, "starves the host"},
+		{"fraction not a number", func(m *Manifest) {
+			m.Args = []string{"--max-model-len=262144", "--gpu-memory-utilization=most"}
+		}, "not a number"},
+		{"fraction negative", func(m *Manifest) {
+			m.Args = []string{"--max-model-len=262144", "--gpu-memory-utilization=-0.5"}
+		}, "must be positive"},
+		{"no context bound", func(m *Manifest) {
+			m.Args = []string{"--gpu-memory-utilization=0.65"}
+		}, "--max-model-len"},
+		{"sglang flags on vllm", func(m *Manifest) {
+			m.Args = []string{"--context-length=262144", "--mem-fraction-static=0.65"}
+		}, "--gpu-memory-utilization"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := gb10Manifest()
+			tc.mut(m)
+			err := m.Validate()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateGB10BoundaryFraction(t *testing.T) {
+	// Exactly at the ceiling is allowed; a hair over is not. The
+	// boundary is the whole point of the rule, so it is pinned.
+	m := gb10Manifest()
+	m.Args = []string{"--max-model-len=4096", "--gpu-memory-utilization=0.80"}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("fraction at the ceiling rejected: %v", err)
+	}
+	m.Args = []string{"--max-model-len=4096", "--gpu-memory-utilization=0.81"}
+	if err := m.Validate(); err == nil {
+		t.Fatal("fraction above the ceiling accepted")
+	}
+}
+
+func TestValidateGB10RulesAreScoped(t *testing.T) {
+	// Fleet models must not inherit any of this: they have discrete
+	// HBM, and an unset fraction there is a tuning choice, not a bug.
+	m := valid() // h200, sglang, args are just --tp-size=8
+	if err := m.Validate(); err != nil {
+		t.Fatalf("non-gb10 manifest caught by gb10 rules: %v", err)
+	}
+}
+
 func TestDeployMode(t *testing.T) {
 	// Absent means k8s, so every manifest written before the field
 	// existed keeps its meaning without an edit.

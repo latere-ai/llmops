@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -46,6 +47,31 @@ type GPU struct {
 	Count int    `yaml:"count"`
 	Nodes int    `yaml:"nodes"`
 }
+
+// GPUTypeGB10 is the single-GPU unified-memory class (specs/019). CPU
+// and GPU share one 128 GB pool, so an engine's memory fraction is
+// taken out of the host's memory as well as the accelerator's.
+const GPUTypeGB10 = "gb10"
+
+// gb10MaxMemFraction caps the engine's share of the unified pool.
+// 0.80 x 128 GB leaves the host roughly 26 GB. Measured 2026-08-28:
+// vLLM at 0.30 held 37.6 GB, confirming the fraction is applied to the
+// whole pool and that the engine fills whatever it is given.
+const gb10MaxMemFraction = 0.80
+
+// Per-engine names for the two flags a gb10 manifest must state: the
+// share of the unified pool, and the KV cache bound. Both engines
+// otherwise supply a default sized for discrete HBM.
+var (
+	memFractionFlags = map[string]string{
+		RuntimeSGLang: "--mem-fraction-static",
+		RuntimeVLLM:   "--gpu-memory-utilization",
+	}
+	contextFlags = map[string]string{
+		RuntimeSGLang: "--context-length",
+		RuntimeVLLM:   "--max-model-len",
+	}
+)
 
 // SystemPrompt modes.
 const (
@@ -258,6 +284,7 @@ func (m *Manifest) Validate() error {
 			fail("hf_repo %s requires arg %s", m.HFRepo, req)
 		}
 	}
+	m.validateGB10(fail)
 	m.validateDSpark(fail)
 	if sp := m.SystemPrompt; sp != nil {
 		switch sp.Mode {
@@ -292,6 +319,53 @@ func (m *Manifest) validateS3Prefix() error {
 		return fmt.Errorf("s3_prefix key %q must be %q (hf_repo/revision/)", key, want)
 	}
 	return nil
+}
+
+// validateGB10 enforces what unified memory changes (specs/019). On a
+// discrete-HBM node an unset memory fraction costs the engine some
+// throughput; here it costs the operating system its memory, because
+// the fraction is taken from the one pool both share. Each rule below
+// is silent at launch and fatal to the host at serve time, so the
+// manifest is where they have to be caught.
+func (m *Manifest) validateGB10(fail func(string, ...any)) {
+	if m.GPU.Type != GPUTypeGB10 {
+		return
+	}
+	if m.GPU.Count != 1 || m.GPU.Nodes != 1 {
+		fail("gpu.type %s is a single-GPU host: count and nodes must both be 1 (got count=%d, nodes=%d)",
+			GPUTypeGB10, m.GPU.Count, m.GPU.Nodes)
+	}
+
+	// runtime: custom launches itself, so it owns its own limits.
+	frac, ok := memFractionFlags[m.Runtime]
+	if !ok {
+		return
+	}
+	switch v, present := m.FlagValue(frac); {
+	case !present:
+		fail("gpu.type %s requires %s: memory is unified, so the engine default is taken out of the host's memory too",
+			GPUTypeGB10, frac)
+	case v == "":
+		fail("%s requires a value", frac)
+	default:
+		f, err := strconv.ParseFloat(v, 64)
+		switch {
+		case err != nil:
+			fail("%s %q is not a number", frac, v)
+		case f <= 0:
+			fail("%s=%s must be positive", frac, v)
+		case f > gb10MaxMemFraction:
+			fail("%s=%s exceeds %.2f on gpu.type %s: the fraction applies to the whole unified pool, so this starves the host",
+				frac, v, gb10MaxMemFraction, GPUTypeGB10)
+		}
+	}
+
+	if ctx := contextFlags[m.Runtime]; ctx != "" {
+		if _, present := m.FlagValue(ctx); !present {
+			fail("gpu.type %s requires %s so the kv cache size is stated rather than inherited from an engine default",
+				GPUTypeGB10, ctx)
+		}
+	}
 }
 
 // validateDSpark enforces the constraints SGLang places on the
