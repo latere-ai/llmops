@@ -31,6 +31,7 @@ number order — the numbering is the implementation order.
 | 022 | [Model: Qwen3.8-27B](022-model-qwen3.8-27b.md) | draft | First dense/multimodal model; BF16, no quantization, 1x GB10 |
 | 023 | [Model: DeepSeek-V4-Flash-0731 (GB10)](023-model-deepseek-v4-flash-0731-gb10.md) | draft | Reduced-precision tier, separate endpoint; gated on a product call |
 | 024 | [One binary: the llmops command](024-single-cli.md) | draft | Three binaries collapse into nine flat `llmops` subcommands |
+| 025 | [Dialect surfaces](025-dialect-surfaces.md) | draft | Serve all three caller dialects; engine dialect declared, loss reported |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest
@@ -77,6 +78,12 @@ an image makes three of them a cost the container mode never paid, so
 `mirror`, `runtime` and `bench` become one `llmops` command. It is
 sequenced before the first deploy on purpose: changing a container
 entrypoint is free today and a coordinated rollout once anything runs.
+
+025 comes out of using `llmdialect` properly. It ships four dialects
+with both codecs each, and the shim wires two of the eight: one caller
+surface, and an engine dialect assumed rather than declared. It also
+drops the loss report the package exists to produce — a caller asking
+for logprobs through Anthropic Messages is told nothing.
 
 The jspace monitoring plane (012→015) proves end to end on the local
 Qwen3-0.6B stack before any fleet GPU is spent; 016 gates fleet-model
