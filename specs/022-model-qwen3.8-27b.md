@@ -105,6 +105,14 @@ The local store therefore holds two things under one pinned revision:
   _manifest.json    covers both, written last
 ```
 
+Build order matters, because the derived files do not exist when the
+vendor pull finishes: **`mirror pull` → convert → `mirror freeze`**. The
+freeze runs last and writes the single `_manifest.json` covering both
+trees. That write belongs to the mirror tool and happens before the
+endpoint starts, so it does not conflict with
+[[021-local-weight-loading]] AC4, which constrains the serving path only.
+Re-running the conversion means re-running the freeze.
+
 `weights_file` and `mmproj_file` from [[020-llamacpp-runtime]] point
 into `gguf/`. Provenance for the derived files is the vendor revision
 plus the recorded conversion command and llama.cpp SHA — that pair has
@@ -144,10 +152,16 @@ rejects at validation time.
   records the llama.cpp SHA and the exact conversion command.
 - **AC3** The endpoint answers OpenAI `/v1/chat/completions` and
   `/anthropic/v1/messages` under the manifest name `qwen3.8-27b`.
-- **AC4** **Vision actually works.** An image request returns a
-  grounded answer, and a test asserts the deploy fails loudly if
-  `mmproj_file` is absent rather than silently serving text-only. This
-  is the failure mode this model is most likely to ship with.
+- **AC4** **Vision actually works, and cannot be dropped silently.**
+  A manifest for `Qwen/Qwen3.8-27B` without `mmproj_file` fails
+  validation — enforced the way `requiredArgs` already keys required
+  flags on `hf_repo`, since validation cannot otherwise know a
+  checkpoint has a vision tower. On top of that, an image request
+  against the live endpoint returns a grounded answer. The schema rule
+  catches the omission in CI; the request proves the projector is
+  actually wired. Without the first, a missing field yields a
+  text-only engine that starts cleanly and looks healthy, which is the
+  failure mode this model is most likely to ship with.
 - **AC5** Measured resident memory at full 262K context is within the
   72.1 GB budget above, or the budget is corrected in this spec. No
   tokens/sec target is set here — there is no published figure for this

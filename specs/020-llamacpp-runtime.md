@@ -90,8 +90,13 @@ mmproj_file: mmproj-Qwen3.8-27B-f16.gguf
 
 Optional, llamacpp-only, same relative-path rule. Present → the engine
 command gains `--mmproj <resolved>`. Absent → the model is text-only
-even if the checkpoint has a vision tower, which is a real and silent
-failure mode, so [[022-model-qwen3.8-27b]] asserts on it.
+even if the checkpoint has a vision tower, and the engine starts
+cleanly, so nothing surfaces the mistake.
+
+The runtime cannot detect this: whether a checkpoint has a vision tower
+is not knowable from the manifest. So the requirement is declared
+per-repo, the way `requiredArgs` already pins flags a model cannot
+legally run without. [[022-model-qwen3.8-27b]] AC4 is the first user.
 
 ### DSpark validation must not fire here
 

@@ -144,8 +144,12 @@ deferral rather than the intended shape.
 - **AC3** `s3_prefix` remains required and shape-checked for the two S3
   modes — an existing manifest with it removed still fails.
 - **AC4** `PrepareWeights` under `load: local` returns `local_path`
-  itself, performs no writes inside it beyond the lock file, and a test
-  asserts no file is copied into `cacheRoot`.
+  itself, performs no writes inside it beyond the lock file **at serve
+  time**, and a test asserts no file is copied into `cacheRoot`. The
+  `mirror` tool is the only writer of a local store, and it runs before
+  the endpoint starts — a derived artifact produced after the vendor
+  pull is covered by re-running `mirror freeze`, not by the serving
+  path. See [[022-model-qwen3.8-27b]] for the case that needs this.
 - **AC5** A corrupt file in a local store fails the launch with a hash
   mismatch and does **not** attempt a fetch.
 - **AC6** `mirror freeze` writes a `_manifest.json` that `mirror verify`

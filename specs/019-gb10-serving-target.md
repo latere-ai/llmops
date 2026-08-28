@@ -152,10 +152,18 @@ flowchart LR
 - **AC2** `DEPLOY.md` documents the gb10 pool: node label, driver floor
   (r580), CUDA 13, and the `usable ≈ 115 GB` planning number with the
   budget formula.
-- **AC3** Manifest validation rejects device-memory-fraction flags
-  (`--mem-fraction-static`, `--gpu-memory-utilization`) on
-  `gpu.type: gb10`, with an error naming the unified-memory reason.
-  This is the one rule that turns a silent node-killer into a CI failure.
+- **AC3** Manifest validation requires an **explicit context-size arg**
+  on `gpu.type: gb10`, so the `kv_cache` term of the budget formula is
+  stated in the manifest instead of inherited from an engine default.
+  This is the rule that turns a silent over-commit into a CI failure: on
+  unified memory an unbounded KV cache takes the host down with it, and
+  under llama.cpp it is `--ctx-size`, not any memory-fraction flag, that
+  sets it.
+  Device-memory-fraction flags (`--mem-fraction-static`,
+  `--gpu-memory-utilization`) are rejected on this class as well. That
+  clause guards nothing today — both are SGLang/vLLM flags and neither
+  engine runs here — and exists so an aarch64 incumbent image cannot
+  land later without it.
 - **AC4** A GB10 node label and pool are described in
   [[008-k8s-serving]] alongside the existing pools.
 - **AC5** Observability notes in [[010-observability-bench]] record that
