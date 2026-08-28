@@ -48,7 +48,8 @@ three ways and mirrored regardless.
 unified CPU/GPU memory, an arm64 CPU, and no cluster around it.
 
 Two things it does **not** change. There is no new engine: both pinned
-engine images already publish linux/arm64 and vLLM builds SM121, so 001's
+engine images already publish linux/arm64 and vLLM's sm_120 kernels run
+on this GPU (measured, 019), so 001's
 decision record stands. And the Kubernetes deploy path is untouched —
 020 adds a **second** deploy mode beside it (installed binary under
 systemd, selected by a `deploy:` field on the manifest), because a
