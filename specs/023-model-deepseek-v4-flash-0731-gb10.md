@@ -4,7 +4,7 @@ status: draft
 depends_on:
   - 017-model-deepseek-v4-flash-0731.md
   - 019-gb10-serving-target.md
-  - 020-arm64-runtime-images.md
+  - 020-bare-metal-packaging.md
   - 021-local-weight-loading.md
 affects:
   - models/deepseek-v4-flash-0731-q2.yaml
@@ -124,8 +124,9 @@ be taken with that number in hand, not before.
 
 ## Engine and the open technical risk
 
-**vLLM**, per [[020-arm64-runtime-images]] — no new engine is needed for
-this class. vLLM's GGUF support covers the imatrix types (IQ1_M, IQ1_S,
+**vLLM v0.28.0**, installed on the host per
+[[020-bare-metal-packaging]] — no new engine is needed for this class.
+vLLM's GGUF support covers the imatrix types (IQ1_M, IQ1_S,
 IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_XS, IQ4_NL) and the k-quants
 (Q2_K through Q6_K), so both configurations are expressible.
 
@@ -137,9 +138,9 @@ it is AC1.
 
 Speculative decoding is not planned here — the draft head does not fit
 the budget. If a measured ceiling later makes room, the path is vLLM's
-`--speculative-config '{"method":"dspark"}'` (≥0.27, and the image is
-now v0.28.0), and whether it accepts a **separate GGUF draft file**
-rather than an in-checkpoint head would need verifying first.
+`--speculative-config '{"method":"dspark"}'` (≥0.27, and the pinned
+engine is v0.28.0), and whether it accepts a **separate GGUF draft
+file** rather than an in-checkpoint head would need verifying first.
 
 ## Provenance
 
@@ -156,19 +157,20 @@ the registry, and the manifest is where it is recorded.
 
 ## Acceptance criteria
 
-- **AC1** vLLM on the arm64 image loads this checkpoint from GGUF on a
-  GB10 node and answers correctly, before anything else here is built.
-  If it does not, this spec either grows a llama.cpp engine — reopening
-  what [[019-gb10-serving-target]] closed — or is abandoned. Settle this
+- **AC1** vLLM on the host loads this checkpoint from GGUF on a GB10 box
+  and answers correctly, before anything else here is built. If it does
+  not, this spec either grows a llama.cpp engine — reopening what
+  [[019-gb10-serving-target]] closed — or is abandoned. Settle this
   first; everything below is wasted if it fails.
 - **AC2** KV cache per token is measured on a real load and recorded
   here, and a quant is chosen against `weights + kv + activations <=
   102 GB`. If no variant leaves usable context, that is a finding that
   closes this spec, not a reason to raise the fraction.
 - **AC3** `models/deepseek-v4-flash-0731-q2.yaml` validates with
-  `runtime: vllm`, `load: local`, `gpu: {type: gb10, count: 1, nodes: 1}`,
-  a memory fraction within the 0.80 bound, and a `context_max`
-  reflecting the measured budget rather than 017's 1M.
+  `runtime: vllm`, `deploy: bare-metal`, `load: local`,
+  `gpu: {type: gb10, count: 1, nodes: 1}`, a memory fraction within the
+  0.80 bound, and a `context_max` reflecting the measured budget rather
+  than 017's 1M.
 - **AC4** The endpoint registers in Lux as `deepseek-v4-flash-0731-q2`,
   and a test asserts it is **not** aliased to, or routed as a fallback
   for, `deepseek-v4-flash-0731`.
