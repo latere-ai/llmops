@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/latere-ai/llmops/internal/install"
+	"github.com/latere-ai/llmops/internal/manifest"
 )
 
 // TestRepoConsistency is the real CI gate: every checked-in model
@@ -13,6 +16,41 @@ func TestRepoConsistency(t *testing.T) {
 	if err := Validate("../../models", "../../deploy"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestCheckedInUnitsAreGenerated keeps the repo's bare-metal units
+// byte-identical to what `llmops install` writes with default options
+// (specs/020). Validate() checks a unit's *properties*, which leaves
+// room for a checked-in file to drift in ways that still pass; this
+// closes that, and means the file in the tree is a truthful preview of
+// what lands on a host.
+//
+// An operator installing with different --cache-root or --user is not
+// constrained by this: it pins the repo's copy, not every rendering.
+func TestCheckedInUnitsAreGenerated(t *testing.T) {
+	models, err := manifest.LoadDir("../../models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, m := range models {
+		if m.DeployMode() != manifest.DeployBareMetal {
+			continue
+		}
+		checked++
+		path := filepath.Join("../../deploy", m.Name, m.Name+".service")
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("%s: %v", m.Name, err)
+			continue
+		}
+		if want := install.Unit(m, install.Options{}); string(got) != want {
+			t.Errorf("%s is not what `llmops install` generates; regenerate it with\n"+
+				"  llmops install --manifest models/%s.yaml --print > %s\ngot:\n%s\nwant:\n%s",
+				path, m.Name, path, got, want)
+		}
+	}
+	t.Logf("%d bare-metal units checked", checked)
 }
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
