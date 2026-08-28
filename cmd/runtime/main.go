@@ -16,8 +16,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/latere-ai/open-llms/internal/manifest"
-	"github.com/latere-ai/open-llms/internal/runtime"
+	"github.com/latere-ai/llmops/internal/manifest"
+	"github.com/latere-ai/llmops/internal/runtime"
 )
 
 func main() {

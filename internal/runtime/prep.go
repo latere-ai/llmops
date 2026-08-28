@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/latere-ai/open-llms/internal/manifest"
-	"github.com/latere-ai/open-llms/internal/mirror"
+	"github.com/latere-ai/llmops/internal/manifest"
+	"github.com/latere-ai/llmops/internal/mirror"
 )
 
 // PrepareWeights makes the model's weights available and returns the

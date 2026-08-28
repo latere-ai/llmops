@@ -15,7 +15,7 @@ import (
 	"latere.ai/x/pkg/llmdialect/anthropic"
 	"latere.ai/x/pkg/llmdialect/openaichat"
 
-	"github.com/latere-ai/open-llms/internal/manifest"
+	"github.com/latere-ai/llmops/internal/manifest"
 )
 
 // Shim fronts the engine with the latere service contract

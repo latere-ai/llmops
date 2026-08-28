@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/latere-ai/open-llms/internal/manifest"
-	"github.com/latere-ai/open-llms/internal/mirror"
+	"github.com/latere-ai/llmops/internal/manifest"
+	"github.com/latere-ai/llmops/internal/mirror"
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"

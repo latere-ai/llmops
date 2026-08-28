@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/latere-ai/open-llms/internal/manifest"
+	"github.com/latere-ai/llmops/internal/manifest"
 )
 
 // DNSName converts a model name to its k8s resource name.

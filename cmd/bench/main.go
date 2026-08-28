@@ -14,7 +14,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/latere-ai/open-llms/internal/bench"
+	"github.com/latere-ai/llmops/internal/bench"
 )
 
 func main() {

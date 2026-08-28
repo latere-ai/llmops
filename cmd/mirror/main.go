@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/latere-ai/open-llms/internal/mirror"
+	"github.com/latere-ai/llmops/internal/mirror"
 )
 
 func main() {

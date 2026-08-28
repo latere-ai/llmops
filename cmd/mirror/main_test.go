@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/latere-ai/open-llms/internal/mirror"
+	"github.com/latere-ai/llmops/internal/mirror"
 )
 
 const testSHA = "0123456789abcdef0123456789abcdef01234567"

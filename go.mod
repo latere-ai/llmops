@@ -1,4 +1,4 @@
-module github.com/latere-ai/open-llms
+module github.com/latere-ai/llmops
 
 go 1.27.0
 
