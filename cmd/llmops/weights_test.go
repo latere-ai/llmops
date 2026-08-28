@@ -69,8 +69,8 @@ func TestCLIPullPushVerifyLs(t *testing.T) {
 	}
 
 	out.Reset()
-	if code := run([]string{"ls", "--bucket", bucket}, &out, &errw); code != 0 {
-		t.Fatalf("ls exit %d: %s", code, errw.String())
+	if code := run([]string{"list", "--bucket", bucket}, &out, &errw); code != 0 {
+		t.Fatalf("list exit %d: %s", code, errw.String())
 	}
 	if !strings.Contains(out.String(), "acme/tiny/"+testSHA) {
 		t.Fatalf("ls output missing mirror: %q", out.String())
@@ -138,7 +138,7 @@ func TestCLIUsageErrors(t *testing.T) {
 		{"push", "acme/tiny@" + testSHA},
 		{"push", "acme/tiny", "--dir", "d", "--bucket", "b"},
 		{"verify"},
-		{"ls"},
+		{"list"},
 	}
 	for _, args := range cases {
 		if code := run(args, &out, &errw); code == 0 {

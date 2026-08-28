@@ -23,7 +23,7 @@ func fakeEndpoint(t *testing.T) *httptest.Server {
 func TestBenchToStdout(t *testing.T) {
 	srv := fakeEndpoint(t)
 	var out, errw strings.Builder
-	code := run([]string{"--url", srv.URL, "--model", "m", "--requests", "2", "--concurrency", "2"}, &out, &errw)
+	code := run([]string{"bench", "--url", srv.URL, "--model", "m", "--requests", "2", "--concurrency", "2"}, &out, &errw)
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errw.String())
 	}
@@ -40,7 +40,7 @@ func TestBenchToFile(t *testing.T) {
 	srv := fakeEndpoint(t)
 	path := filepath.Join(t.TempDir(), "report.json")
 	var out, errw strings.Builder
-	if code := run([]string{"--url", srv.URL, "--model", "m", "--requests", "1", "--out", path}, &out, &errw); code != 0 {
+	if code := run([]string{"bench", "--url", srv.URL, "--model", "m", "--requests", "1", "--out", path}, &out, &errw); code != 0 {
 		t.Fatalf("exit %d: %s", code, errw.String())
 	}
 	data, err := os.ReadFile(path)
@@ -51,14 +51,14 @@ func TestBenchToFile(t *testing.T) {
 
 func TestBenchErrors(t *testing.T) {
 	var out, errw strings.Builder
-	if code := run([]string{"--model", "m"}, &out, &errw); code == 0 {
+	if code := run([]string{"bench", "--model", "m"}, &out, &errw); code == 0 {
 		t.Fatal("missing url must fail")
 	}
-	if code := run([]string{"--badflag"}, &out, &errw); code != 2 {
+	if code := run([]string{"bench", "--badflag"}, &out, &errw); code != 2 {
 		t.Fatal("bad flag must exit 2")
 	}
 	srv := fakeEndpoint(t)
-	if code := run([]string{"--url", srv.URL, "--model", "m", "--out", "/nonexistent-dir/x.json"}, &out, &errw); code == 0 {
+	if code := run([]string{"bench", "--url", srv.URL, "--model", "m", "--out", "/nonexistent-dir/x.json"}, &out, &errw); code == 0 {
 		t.Fatal("unwritable out must fail")
 	}
 }
