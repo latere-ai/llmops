@@ -4,7 +4,7 @@ COVER_MIN = 90.0
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover validate fmt fmt-check hooks vet e2e images clean lint-modernize
+.PHONY: build test cover validate fmt fmt-check hooks vet e2e images dist clean lint-modernize
 
 build:
 	$(GO) build ./...
@@ -88,8 +88,24 @@ release:
 	docker push $(REGISTRY)/open-llms-runtime-vllm:$(VERSION)
 	docker push $(REGISTRY)/open-llms-mirror:$(VERSION)
 
+# Host binaries for the bare-metal deploy mode (specs/020). GOARCH must
+# be set explicitly: a plain `go build` targets the builder, so building
+# on a laptop for an arm64 host would silently ship an amd64 binary.
+# CGO stays off so these cross-compile with no toolchain per target.
+DIST_PLATFORMS = linux/amd64 linux/arm64
+
+dist:
+	@rm -rf dist
+	@for p in $(DIST_PLATFORMS); do \
+		os=$${p%/*}; arch=$${p#*/}; \
+		echo "dist: $$os/$$arch"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -o dist/$$os-$$arch/ ./cmd/... || exit 1; \
+	done
+	@find dist -type f -exec ls -lh {} \; | awk '{print $$9, $$5}'
+
 clean:
 	rm -f coverage.out
+	rm -rf dist
 
 # Full local e2e: real small model + MinIO + mlx_lm engine (specs/011).
 # Needs Docker and uv; zero cloud credentials. ~1.5 GB one-time download.
