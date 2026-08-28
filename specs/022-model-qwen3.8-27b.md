@@ -3,12 +3,12 @@ title: "Model: Qwen3.8-27B (dense multimodal, GB10)"
 status: draft
 depends_on:
   - 019-gb10-serving-target.md
-  - 020-llamacpp-runtime.md
+  - 020-arm64-runtime-images.md
   - 021-local-weight-loading.md
 affects:
   - models/qwen3.8-27b.yaml
   - deploy/qwen3.8-27b/
-  - cmd/mirror/
+  - Dockerfile.vllm
   - README.md
 effort: medium
 created: 2026-08-28
@@ -21,16 +21,17 @@ dispatched_task_id: null
 
 ## Overview
 
-Every model in the registry so far is a large sparse MoE served on a
-multi-GPU node. This one is none of those things: 27B **dense**, natively
-**multimodal**, and small enough to run at **full BF16 precision with no
-quantization at all** on a single [[019-gb10-serving-target]] node.
+Every model in the registry so far is a large sparse MoE on a multi-GPU
+node. This one is none of those things: 27B **dense**, natively
+**multimodal**, and small enough to serve at **full BF16 precision with
+no quantization** on a single [[019-gb10-serving-target]] node, from the
+vendor's own checkpoint.
 
 That is the reason to serve it. On this hardware class the alternative
-([[023-model-deepseek-v4-flash-0731-gb10]]) is a very large model
-compressed to roughly two bits. This one is an undamaged model that
-leaves 40 GB of the node idle. Those are different products, and the
-registry should carry both rather than pretend one dominates.
+([[023-model-deepseek-v4-flash-0731-gb10]]) is a much larger model
+compressed below the precision it was trained for. This one is
+undamaged and leaves 40 GB of the node idle. Those are different
+products.
 
 It is also the first model that makes the registry's scope explicit:
 **open-llms serves what we choose to own, not only frontier-scale MoE.**
@@ -42,24 +43,35 @@ If that is wrong, this spec is where to say so.
   `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`, published 2026-08-14.
   **Apache-2.0** — no gate, no acceptance step, the least encumbered
   license in the registry.
-- 27B dense. Released as **BF16**.
-- Native vision and video understanding; the projector is a separate
-  artifact, not fused into the language weights.
+- 27B dense, released as **BF16**. Native vision and video
+  understanding in the same checkpoint.
 - **262,144 native context**, extensible to ~1M via YaRN.
-- Hybrid attention, 64 layers in a 3:1 pattern:
-  **48 Gated DeltaNet** linear-attention layers and **16 Gated
-  Attention** full-attention layers. Full-attention layers carry 24 Q
-  heads and **4 KV heads at 256 head dim**; the linear layers hold a
-  fixed-size recurrent state that does not grow with sequence length.
-- Engine support: llama.cpp carries the Gated DeltaNet operators (landed
-  May 2026, needs a current build, not a distro package); vLLM and SGLang
-  also carry the architecture — but not on this GPU, per
-  [[019-gb10-serving-target]].
+- Hybrid attention, 64 layers in a 3:1 pattern: **48 Gated DeltaNet**
+  linear-attention layers and **16 Gated Attention** full-attention
+  layers. Full-attention layers carry 24 Q heads and **4 KV heads at 256
+  head dim**; the linear layers hold a fixed-size recurrent state that
+  does not grow with sequence length.
+
+## Engine
+
+**vLLM**, on the `v0.28.0` image this spec's work bumped
+`Dockerfile.vllm` to.
+
+SGLang is the fleet primary ([[001-inference-engine-selection]]) and is
+the default choice for a new model. It is not the choice here for one
+reason: the pinned SGLang tag is `v0.5.16`, which predates this model's
+2026-08-14 release, so its support for the Gated DeltaNet layers is
+unverified. vLLM `v0.28.0` was published 2026-08-26 and postdates the
+model. Taking the engine whose release is newer than the model is the
+cheaper bet than bumping SGLang for one model on one node.
+
+If SGLang is bumped later for another reason and carries the
+architecture, moving this model is a manifest edit and nothing else.
 
 ## Memory budget
 
-The KV cache is the interesting term, and it is small for a reason worth
-writing down: only 16 of 64 layers cache anything.
+The KV cache is the interesting term, and it is small because only 16 of
+64 layers cache anything:
 
 ```
 kv_per_token = 16 layers x 4 kv_heads x 256 dim x 2 (K,V) x 2 bytes
@@ -69,54 +81,30 @@ kv_per_token = 16 layers x 4 kv_heads x 256 dim x 2 (K,V) x 2 bytes
 ```
 weights   27B x 2 bytes (BF16)          =  54.0 GB
 kv_cache  262,144 tokens x 64 KiB       =  17.2 GB
-mmproj    vision projector (f16)        =   0.9 GB
                                            ------
-                                            72.1 GB   of ~115 GB usable
+                                            71.2 GB   of ~115 GB usable
 ```
 
-A conventional 27B with full attention on every layer would want roughly
-four times the KV cache and would not reach native context on this node.
-The 3:1 hybrid is what makes 262K affordable, so **`-c 262144` is the
-configuration this spec is claiming**, not a maximum to be tuned down.
+A conventional 27B caching on every layer would want roughly four times
+the KV and would not reach native context on this node. The 3:1 hybrid
+is what makes 262K affordable, so **`--max-model-len 262144` is the
+configuration this spec claims**, not a ceiling to tune down.
 
-## Weight format decision
+At `--gpu-memory-utilization 0.80` the engine may reserve up to ~102 GB,
+comfortably above the 71.2 GB needed, and within
+[[019-gb10-serving-target]] AC2's bound.
 
-llama.cpp needs GGUF. There are two ways to get one, and they have
-different provenance.
+## Weights
 
-**Chosen: convert from the vendor checkpoint ourselves.**
-`mirror pull` fetches `Qwen/Qwen3.8-27B` at the pinned SHA, and a
-conversion step produces GGUF locally. The freeze chain stays rooted at
-the vendor revision, and the derived artifact records the tool version
-that produced it.
+The vendor checkpoint is served **as published** — BF16 safetensors, no
+conversion, no derived artifacts, no third-party requantization. `mirror
+pull` fetches `Qwen/Qwen3.8-27B` at the pinned SHA, `mirror freeze`
+writes `_manifest.json`, and [[021-local-weight-loading]] verifies it in
+place at launch. The freeze chain has exactly one link and it ends at
+the vendor.
 
-**Rejected: pin a third-party GGUF repo.** It would be less work and it
-is what [[023-model-deepseek-v4-flash-0731-gb10]] is forced into, but it
-substitutes someone else's conversion for the vendor's weights while the
-manifest still says Qwen. Where converting ourselves is affordable — and
-at 27B F16 it plainly is — the provenance is worth the step.
-
-The local store therefore holds two things under one pinned revision:
-
-```
-<local_path>/
-  source/           vendor safetensors, SHA-256 per file from HF
-  gguf/             derived: *.gguf + mmproj, our SHA-256
-  _manifest.json    covers both, written last
-```
-
-Build order matters, because the derived files do not exist when the
-vendor pull finishes: **`mirror pull` → convert → `mirror freeze`**. The
-freeze runs last and writes the single `_manifest.json` covering both
-trees. That write belongs to the mirror tool and happens before the
-endpoint starts, so it does not conflict with
-[[021-local-weight-loading]] AC4, which constrains the serving path only.
-Re-running the conversion means re-running the freeze.
-
-`weights_file` and `mmproj_file` from [[020-llamacpp-runtime]] point
-into `gguf/`. Provenance for the derived files is the vendor revision
-plus the recorded conversion command and llama.cpp SHA — that pair has
-to be reproducible, which AC4 pins.
+This is the simplest weight story in the registry, and it is the second
+reason to prefer this model on this node.
 
 ## Manifest sketch
 
@@ -124,51 +112,38 @@ to be reproducible, which AC4 pins.
 name: qwen3.8-27b
 hf_repo: Qwen/Qwen3.8-27B
 revision: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
-format: bf16-gguf
+format: bf16
 license: apache-2.0
-runtime: llamacpp
+runtime: vllm
 load: local
 local_path: /var/lib/openllms/Qwen/Qwen3.8-27B/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/
-weights_file: gguf/Qwen3.8-27B-BF16-00001-of-00002.gguf
-mmproj_file: gguf/mmproj-Qwen3.8-27B-f16.gguf
 gpu: { type: gb10, count: 1, nodes: 1 }
 context_max: 262144
 args:
-  - --n-gpu-layers=99
-  - --ctx-size=262144
+  - --max-model-len=262144
+  - --gpu-memory-utilization=0.80
 ```
-
-No `--mem-fraction-static` or `--gpu-memory-utilization`: on unified
-memory those are the node-killer that [[019-gb10-serving-target]] AC3
-rejects at validation time.
 
 ## Acceptance criteria
 
 - **AC1** `models/qwen3.8-27b.yaml` validates, and `deploycheck` passes
   against `deploy/qwen3.8-27b/lws.yaml` on the gb10 pool with
   `nvidia.com/gpu: "1"`.
-- **AC2** The conversion is reproducible: running it twice from the same
-  vendor revision yields byte-identical GGUF, and `_manifest.json`
-  records the llama.cpp SHA and the exact conversion command.
-- **AC3** The endpoint answers OpenAI `/v1/chat/completions` and
+- **AC2** The endpoint answers OpenAI `/v1/chat/completions` and
   `/anthropic/v1/messages` under the manifest name `qwen3.8-27b`.
-- **AC4** **Vision actually works, and cannot be dropped silently.**
-  A manifest for `Qwen/Qwen3.8-27B` without `mmproj_file` fails
-  validation — enforced the way `requiredArgs` already keys required
-  flags on `hf_repo`, since validation cannot otherwise know a
-  checkpoint has a vision tower. On top of that, an image request
-  against the live endpoint returns a grounded answer. The schema rule
-  catches the omission in CI; the request proves the projector is
-  actually wired. Without the first, a missing field yields a
-  text-only engine that starts cleanly and looks healthy, which is the
-  failure mode this model is most likely to ship with.
-- **AC5** Measured resident memory at full 262K context is within the
-  72.1 GB budget above, or the budget is corrected in this spec. No
-  tokens/sec target is set here — there is no published figure for this
-  model on this GPU, so [[010-observability-bench]]'s harness
-  establishes the baseline rather than checking one.
-- **AC6** A 262K-token request succeeds. The KV arithmetic above is the
+- **AC3** **Vision works.** An image request returns a grounded answer
+  through both the OpenAI and Anthropic surfaces. The vision tower is
+  part of the checkpoint, so there is no separate artifact to forget —
+  but there is also nothing that fails loudly if the engine silently
+  serves text-only, which is why this is tested against a real image
+  rather than inferred from a clean start.
+- **AC4** A 262K-token request succeeds. The KV arithmetic above is the
   claim; this is the test of it.
+- **AC5** Measured resident memory at full context is within the
+  71.2 GB budget, or the budget is corrected here.
+- **AC6** No tokens/sec target is set. There is no published figure for
+  this model on this GPU, so [[010-observability-bench]]'s harness
+  establishes the baseline rather than checking one.
 - **AC7** README's target-model table carries the model, its class
   (dense, multimodal) and its GPU class.
 
@@ -176,6 +151,6 @@ rejects at validation time.
 
 - YaRN extension beyond 262K native.
 - Quantized variants. The point of this model on this node is that it
-  does not need one.
+  needs none.
 - Video input. The checkpoint supports it; the serving surface for it is
   not specified here.
