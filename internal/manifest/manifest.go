@@ -26,6 +26,11 @@ const (
 const (
 	LoadNVMeCache = "nvme-cache"
 	LoadS3Stream  = "s3-stream"
+	// LoadLocal serves weights already on the host's disk, verified in
+	// place against _manifest.json and never copied (specs/021). The
+	// freeze guarantee is a pinned revision plus per-file checksums,
+	// not the storage behind them, so it survives having no bucket.
+	LoadLocal = "local"
 )
 
 // Deploy modes accepted in the `deploy` field (specs/020). The mode
@@ -225,7 +230,7 @@ func (m *Manifest) Validate() error {
 	if !revisionRe.MatchString(m.Revision) {
 		fail("revision %q must be a pinned 40-hex commit SHA", m.Revision)
 	}
-	if err := m.validateS3Prefix(); err != nil {
+	if err := m.validateWeightSource(); err != nil {
 		fail("%v", err)
 	}
 	if m.Format == "" {
@@ -269,8 +274,9 @@ func (m *Manifest) Validate() error {
 		if m.Runtime != RuntimeVLLM {
 			fail("load: s3-stream is vllm-only (got runtime %q)", m.Runtime)
 		}
+	case LoadLocal:
 	default:
-		fail("load %q must be one of nvme-cache|s3-stream", m.Load)
+		fail("load %q must be one of nvme-cache|s3-stream|local", m.Load)
 	}
 
 	if m.GPU.Type == "" || m.GPU.Count <= 0 || m.GPU.Nodes <= 0 {
@@ -301,6 +307,25 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("invalid manifest: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validateWeightSource checks the manifest names its weights exactly
+// once (specs/021).
+//
+// `load: local` names no source at all: the weights live at
+// <weights-root>/<hf_repo>/<revision>, the same layout nvme-cache uses,
+// with the root supplied by the host at serve time. Keeping the root
+// out of the manifest is what lets one checked-in manifest describe a
+// model on any machine — an absolute path here would pin the file to
+// one host's directory layout.
+func (m *Manifest) validateWeightSource() error {
+	if m.Load == LoadLocal {
+		if m.S3Prefix != "" {
+			return fmt.Errorf("load: local reads from the weights root, so s3_prefix must be empty")
+		}
+		return nil
+	}
+	return m.validateS3Prefix()
 }
 
 // validateS3Prefix checks the prefix is revision-pinned and matches the

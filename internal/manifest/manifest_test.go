@@ -212,6 +212,47 @@ func TestEngineImage(t *testing.T) {
 	}
 }
 
+// localManifest serves weights already present on the host's disk. The
+// directory is not named here: it is <weights-root>/<hf_repo>/<revision>
+// with the root supplied per host, so the manifest stays portable.
+func localManifest() *Manifest {
+	m := valid()
+	m.Load = LoadLocal
+	m.S3Prefix = ""
+	return m
+}
+
+func TestValidateLocalOK(t *testing.T) {
+	if err := localManifest().Validate(); err != nil {
+		t.Fatalf("valid local manifest rejected: %v", err)
+	}
+}
+
+func TestValidateLocalRejectsS3Prefix(t *testing.T) {
+	// Two sources for one set of weights is the ambiguity the schema
+	// exists to prevent, so this is an error rather than a precedence
+	// rule.
+	m := localManifest()
+	m.S3Prefix = "s3://latere-models/moonshotai/Kimi-K2.7-Code/" + sha + "/"
+	err := m.Validate()
+	if err == nil || !strings.Contains(err.Error(), "s3_prefix must be empty") {
+		t.Fatalf("load: local with an s3_prefix accepted: %v", err)
+	}
+}
+
+func TestValidateS3ModesStillRequirePrefix(t *testing.T) {
+	// Adding a third mode must not weaken the two that existed.
+	for _, load := range []string{LoadNVMeCache, LoadS3Stream} {
+		m := valid()
+		m.Runtime = RuntimeVLLM
+		m.Load = load
+		m.S3Prefix = ""
+		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "s3://") {
+			t.Errorf("load %s without s3_prefix accepted: %v", load, err)
+		}
+	}
+}
+
 // gb10Manifest is a minimal valid single-GPU unified-memory model.
 func gb10Manifest() *Manifest {
 	m := valid()
