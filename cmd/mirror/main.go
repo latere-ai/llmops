@@ -51,7 +51,7 @@ func popPositional(rest []string) (pos string, flags []string) {
 
 func run(args []string, out, errw io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(errw, "usage: mirror <pull|push|verify|ls> [args]")
+		fmt.Fprintln(errw, "usage: mirror <pull|push|freeze|verify|ls> [args]")
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
@@ -99,6 +99,24 @@ func run(args []string, out, errw io.Writer) int {
 				return err
 			}
 			fmt.Fprintf(out, "pushed %s@%s to %s\n", repo, sha, prefix)
+			return nil
+		case "freeze":
+			fs := flag.NewFlagSet("freeze", flag.ContinueOnError)
+			fs.SetOutput(errw)
+			dir := fs.String("dir", "", "weights directory to freeze in place")
+			target, flags := popPositional(rest)
+			if err := fs.Parse(flags); err != nil || target == "" || *dir == "" {
+				return fmt.Errorf("usage: mirror freeze <hf_repo>@<sha> --dir <weights-dir>")
+			}
+			repo, rev := splitRepo(target)
+			if rev == "" {
+				return fmt.Errorf("freeze requires a pinned revision: <hf_repo>@<sha>")
+			}
+			sha, err := newMirror(errw).Freeze(repo, rev, *dir)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "froze %s@%s in %s\n", repo, sha, *dir)
 			return nil
 		case "verify":
 			if len(rest) != 1 {

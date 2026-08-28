@@ -77,6 +77,41 @@ func TestCLIPullPushVerifyLs(t *testing.T) {
 	}
 }
 
+func TestCLIPullFreezeVerify(t *testing.T) {
+	// The bare-metal path has no bucket: pull, freeze in place, and the
+	// weights directory is itself a verifiable store (specs/021).
+	weights := startHub(t)
+	var out, errw strings.Builder
+
+	if code := run([]string{"pull", "acme/tiny", "--dir", weights}, &out, &errw); code != 0 {
+		t.Fatalf("pull exit %d: %s", code, errw.String())
+	}
+	out.Reset()
+	if code := run([]string{"freeze", "acme/tiny@" + testSHA, "--dir", weights}, &out, &errw); code != 0 {
+		t.Fatalf("freeze exit %d: %s", code, errw.String())
+	}
+	if !strings.Contains(out.String(), testSHA) {
+		t.Fatalf("freeze output missing sha: %q", out.String())
+	}
+	if code := run([]string{"verify", weights}, &out, &errw); code != 0 {
+		t.Fatalf("verify of frozen dir exit %d: %s", code, errw.String())
+	}
+}
+
+func TestCLIFreezeUsage(t *testing.T) {
+	var out, errw strings.Builder
+	cases := [][]string{
+		{"freeze"},
+		{"freeze", "acme/tiny@" + testSHA},            // no --dir
+		{"freeze", "acme/tiny", "--dir", t.TempDir()}, // unpinned revision
+	}
+	for _, args := range cases {
+		if code := run(args, &out, &errw); code == 0 {
+			t.Fatalf("args %v must fail", args)
+		}
+	}
+}
+
 func TestCLIVerifyDetectsCorruption(t *testing.T) {
 	scratch := startHub(t)
 	bucket := t.TempDir()
