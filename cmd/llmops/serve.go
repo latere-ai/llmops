@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
+	"github.com/latere-ai/llmops/internal/deploycheck"
 	"github.com/latere-ai/llmops/internal/manifest"
 	"github.com/latere-ai/llmops/internal/runtime"
 )
@@ -20,10 +22,14 @@ import (
 func runServing(cmd string, rest []string, out, errw io.Writer) error {
 	switch cmd {
 	case "validate":
-		if len(rest) != 1 {
-			return usagef("usage: llmops validate <models-dir | manifest.yaml>")
+		fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+		fs.SetOutput(errw)
+		deployDir := fs.String("deploy", "", "deploy directory (default: <models-dir>/../deploy)")
+		target, flags := popPositional(rest)
+		if err := fs.Parse(flags); err != nil || target == "" {
+			return usagef("usage: llmops validate <models-dir | manifest.yaml> [--deploy <dir>]")
 		}
-		return validate(rest[0], out)
+		return validate(target, *deployDir, out)
 
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -56,27 +62,48 @@ func runServing(cmd string, rest []string, out, errw io.Writer) error {
 	return fmt.Errorf("unknown serving command %q", cmd)
 }
 
-func validate(path string, out io.Writer) error {
+// validate checks manifests, and for a directory also checks each
+// model's deploy artifact agrees with it.
+//
+// The deploy half used to run only from deploycheck's own test, so a
+// deploy file could contradict its manifest and nothing outside `go
+// test` would say so. Running it here is what makes the consistency
+// guarantee real for anyone holding the binary.
+func validate(path, deployDir string, out io.Writer) error {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
-	if fi.IsDir() {
-		ms, err := manifest.LoadDir(path)
+	if !fi.IsDir() {
+		m, err := manifest.Load(path)
 		if err != nil {
 			return err
 		}
-		for _, m := range ms {
-			fmt.Fprintf(out, "%s: ok (%s, %s, %dx%s x%d)\n",
-				m.Name, m.Runtime, m.Format, m.GPU.Count, m.GPU.Type, m.GPU.Nodes)
-		}
-		fmt.Fprintf(out, "%d manifests valid\n", len(ms))
+		fmt.Fprintf(out, "%s: ok\n", m.Name)
 		return nil
 	}
-	m, err := manifest.Load(path)
+
+	ms, err := manifest.LoadDir(path)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%s: ok\n", m.Name)
+	for _, m := range ms {
+		fmt.Fprintf(out, "%s: ok (%s, %s, %s, %dx%s x%d)\n",
+			m.Name, m.Runtime, m.DeployMode(), m.Format, m.GPU.Count, m.GPU.Type, m.GPU.Nodes)
+	}
+	fmt.Fprintf(out, "%d manifests valid\n", len(ms))
+
+	if deployDir == "" {
+		deployDir = filepath.Join(filepath.Dir(filepath.Clean(path)), "deploy")
+	}
+	if _, err := os.Stat(deployDir); err != nil {
+		// Say so rather than passing quietly: a silent skip is how the
+		// deploy check went unrun in the first place.
+		return fmt.Errorf("deploy directory %s: %w (pass --deploy to point elsewhere)", deployDir, err)
+	}
+	if err := deploycheck.Validate(path, deployDir); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%d deploy artifacts consistent\n", len(ms))
 	return nil
 }
