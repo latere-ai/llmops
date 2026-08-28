@@ -187,6 +187,73 @@ This is also the first manifest in the registry with
 - **AC7** README's target-model table carries the model, its class
   (dense, multimodal) and its GPU class.
 
+## Outcome (brought up 2026-08-29)
+
+Served on a GB10 box through `llmops serve` with `load: local` and
+`deploy: bare-metal`. Every number below is measured, not derived.
+
+### The arithmetic held
+
+| | Predicted | Measured |
+|---|---|---|
+| KV per token | 64 KiB | **65.4 KiB** (18.23 GiB / 292,125 tokens) |
+| Weights resident | 54.0 GB | 56.01 GiB incl. non-torch |
+| Activations | ~6 GB (est.) | 4.86 GiB peak |
+| Engine total | ≤ 83.2 GB | **71.4 GiB**, under the 0.65 budget of 79.1 GiB |
+
+The KV figure is the one worth noting: derived from the published head
+geometry — 16 full-attention layers of 4 KV heads at 256 dim — and it
+landed within 2% of what the engine actually allocated. The 3:1 hybrid
+really is what makes 262K affordable here.
+
+vLLM sized the cache at **292,125 tokens**, above the 262,144 the
+manifest asks for, and reported "maximum concurrency for 262,144 tokens
+per request: 1.11x" — so one full-context request fits with room over.
+
+### It answers, on both surfaces, including vision
+
+- OpenAI Chat: `17*23` → `391`.
+- Anthropic Messages, translated by the shim: capital of France →
+  `Paris`, with `type: message`.
+- **Vision:** a synthetic solid-red PNG → `Red`. AC3's point was that
+  nothing fails loudly if the tower is silently absent, so this was
+  tested against a real image rather than inferred from a clean start.
+- Served under the manifest name `qwen3.8-27b`; `/metrics` exports
+  `llmops_weights_load_seconds 39.19`.
+
+### Startup is slow, and the unit's timeout was right
+
+Weight verification in place took **39 s** for 32 files. Engine init
+took **382 s** (60 s of it compilation), and the endpoint reached
+`/ready` about **10 minutes** after launch. systemd's 90 s default would
+have killed this mid-load; [[020-bare-metal-packaging]]'s
+`TimeoutStartSec=30min` is not padding.
+
+### Throughput is the disappointment: ~3 tokens/s
+
+`llmops bench` over 3 requests, concurrency 1: **2.99 tokens/s**, TTFT
+p50 **691 ms**, no errors.
+
+That is roughly 60% of what this box's memory bandwidth allows for
+54 GB of weights read per token, so it is not a misconfiguration — it is
+what a dense 27B at BF16 costs on this hardware. It is too slow for
+interactive use.
+
+The fix is not more memory but fewer bytes per token: an INT8 or 4-bit
+quantization would read a half or a quarter as much and go
+correspondingly faster, at a quality cost this spec deliberately refused
+in exchange for an undamaged model. That trade should now be made with
+the measurement in hand rather than in the abstract, and it is a
+follow-up rather than a correction — "runs undamaged" was the claim, and
+it holds.
+
+### Acceptance criteria
+
+AC1, AC2, AC3, AC5, AC6 and AC7 are met. **AC4 is not**: a 262K-token
+request was never sent. The capacity is proven — the cache holds 292,125
+tokens — but capacity is not the same as a served request, and at 3
+tokens/s a full-context generation is a long experiment. It stays open.
+
 ## Out of scope
 
 - YaRN extension beyond 262K native.
