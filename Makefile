@@ -22,7 +22,7 @@ cover:
 # Validate all model manifests + deploy consistency (also run in `test`
 # via internal/deploycheck).
 validate:
-	$(GO) run ./cmd/runtime validate models/
+	$(GO) run ./cmd/llmops validate models/
 
 # fmt formats all Go sources in place.
 fmt:
@@ -62,7 +62,7 @@ lint-modernize:
 		exit 1; \
 	fi
 
-# CI-runnable e2e: full mirror pull→push→verify and runtime
+# CI-runnable e2e: full pull→push→verify and serve
 # serve→ready→metrics paths against fakes (no GPU, no network).
 # GPU e2e (make e2e-<model>) is a release gate on real hardware.
 e2e:
@@ -88,18 +88,27 @@ release:
 	docker push $(REGISTRY)/llmops-runtime-vllm:$(VERSION)
 	docker push $(REGISTRY)/llmops-mirror:$(VERSION)
 
-# Host binaries for the bare-metal deploy mode (specs/020). GOARCH must
-# be set explicitly: a plain `go build` targets the builder, so building
-# on a laptop for an arm64 host would silently ship an amd64 binary.
-# CGO stays off so these cross-compile with no toolchain per target.
+# Host binaries for the bare-metal deploy mode (specs/020, specs/024).
+# GOARCH must be set explicitly: a plain `go build` targets the builder,
+# so building on a laptop for an arm64 host would silently ship an amd64
+# binary. CGO stays off so these cross-compile with no toolchain per
+# target.
+#
+# One binary per platform, not three: a host copied to by hand has one
+# file to place and one thing to ask for a version (specs/024).
 DIST_PLATFORMS = linux/amd64 linux/arm64
+DIST_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo devel)
+DIST_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+DIST_LDFLAGS = -s -w -X main.version=$(DIST_VERSION) -X main.commit=$(DIST_COMMIT)
 
 dist:
 	@rm -rf dist
 	@for p in $(DIST_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
-		echo "dist: $$os/$$arch"; \
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -o dist/$$os-$$arch/ ./cmd/... || exit 1; \
+		echo "dist: $$os/$$arch $(DIST_VERSION)"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build \
+			-ldflags "$(DIST_LDFLAGS)" \
+			-o dist/$$os-$$arch/llmops ./cmd/llmops || exit 1; \
 	done
 	@find dist -type f -exec ls -lh {} \; | awk '{print $$9, $$5}'
 

@@ -10,14 +10,14 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/runtime ./cmd/runtime
+RUN CGO_ENABLED=0 go build -o /out/llmops ./cmd/llmops
 
 FROM vllm/vllm-openai:v0.28.0
-COPY --from=build /out/runtime /usr/local/bin/runtime
+COPY --from=build /out/llmops /usr/local/bin/llmops
 # Run:ai streamer enables load: s3-stream; s5cmd covers nvme-cache.
 RUN pip install --no-cache-dir "vllm[runai]" runai-model-streamer runai-model-streamer-s3 \
     && curl -fsSL https://github.com/peak/s5cmd/releases/download/v2.3.0/s5cmd_2.3.0_Linux-64bit.tar.gz \
        | tar -xz -C /usr/local/bin s5cmd
 EXPOSE 8000
-ENTRYPOINT ["runtime", "serve"]
+ENTRYPOINT ["llmops", "serve"]
 CMD ["--manifest", "/etc/llmops/model.yaml"]

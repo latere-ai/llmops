@@ -4,7 +4,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/mirror ./cmd/mirror
+RUN CGO_ENABLED=0 go build -o /out/llmops ./cmd/llmops
 
 FROM python:3.12-slim
 RUN pip install --no-cache-dir "huggingface_hub[hf_transfer]" \
@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir "huggingface_hub[hf_transfer]" \
     && curl -fsSL https://github.com/peak/s5cmd/releases/download/v2.3.0/s5cmd_2.3.0_Linux-64bit.tar.gz \
        | tar -xz -C /usr/local/bin s5cmd \
     && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-COPY --from=build /out/mirror /usr/local/bin/mirror
+COPY --from=build /out/llmops /usr/local/bin/llmops
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-ENTRYPOINT ["mirror"]
+# No default subcommand: this image runs whichever weight verb the Job
+# asks for (pull, push, freeze, verify, list).
+ENTRYPOINT ["llmops"]
