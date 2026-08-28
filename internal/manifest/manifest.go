@@ -3,6 +3,7 @@
 package manifest
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,19 @@ const (
 const (
 	LoadNVMeCache = "nvme-cache"
 	LoadS3Stream  = "s3-stream"
+)
+
+// Deploy modes accepted in the `deploy` field (specs/020). The mode
+// selects how the process is started and which deploy artifact the
+// model owns, not how it serves — both modes run the same
+// `runtime serve` entrypoint against the same schema.
+//
+// It is an explicit field rather than something inferred from gpu.type:
+// deploy mode and hardware are independent axes, and inferring would
+// silently swap a model's deploy artifact when its GPU changed.
+const (
+	DeployK8s       = "k8s"        // container + deploy/<name>/lws.yaml
+	DeployBareMetal = "bare-metal" // installed binary + systemd unit
 )
 
 // GPU describes the resource shape a model requires.
@@ -59,6 +73,7 @@ type Manifest struct {
 	LicenseNote  string        `yaml:"license_note,omitempty"`
 	Runtime      string        `yaml:"runtime"`
 	Image        string        `yaml:"image,omitempty"`
+	Deploy       string        `yaml:"deploy,omitempty"`
 	Load         string        `yaml:"load"`
 	GPU          GPU           `yaml:"gpu"`
 	ContextMax   int           `yaml:"context_max"`
@@ -106,6 +121,23 @@ func (m *Manifest) EngineImage() string {
 		return img
 	}
 	return "open-llms-runtime-" + m.Runtime
+}
+
+// DeployMode is the model's deploy mode, defaulting to k8s so every
+// manifest written before the field existed keeps its meaning.
+func (m *Manifest) DeployMode() string {
+	return cmp.Or(m.Deploy, DeployK8s)
+}
+
+// DeployArtifact is the path, relative to the deploy directory, of the
+// one artifact this model owns. A model never has both: the artifacts
+// describe the same thing in two mechanisms, so a second one is a
+// second source of truth (specs/020).
+func (m *Manifest) DeployArtifact() string {
+	if m.DeployMode() == DeployBareMetal {
+		return filepath.Join(m.Name, m.Name+".service")
+	}
+	return filepath.Join(m.Name, "lws.yaml")
 }
 
 // Parse decodes a manifest, rejecting unknown fields.
@@ -191,6 +223,18 @@ func (m *Manifest) Validate() error {
 		}
 	default:
 		fail("runtime %q must be one of sglang|vllm|custom", m.Runtime)
+	}
+
+	switch m.DeployMode() {
+	case DeployK8s:
+	case DeployBareMetal:
+		// No container is built or pulled in this mode, so an image
+		// reference would name something that never gets deployed.
+		if m.Image != "" {
+			fail("deploy: bare-metal has no container, so image is not allowed")
+		}
+	default:
+		fail("deploy %q must be one of k8s|bare-metal", m.Deploy)
 	}
 
 	switch m.Load {

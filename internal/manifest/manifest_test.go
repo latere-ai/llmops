@@ -212,6 +212,45 @@ func TestEngineImage(t *testing.T) {
 	}
 }
 
+func TestDeployMode(t *testing.T) {
+	// Absent means k8s, so every manifest written before the field
+	// existed keeps its meaning without an edit.
+	m := valid()
+	if got := m.DeployMode(); got != DeployK8s {
+		t.Errorf("absent deploy = %q, want %q", got, DeployK8s)
+	}
+	if got := m.DeployArtifact(); got != "kimi-k2.7-code/lws.yaml" {
+		t.Errorf("k8s artifact = %q", got)
+	}
+
+	m.Deploy = DeployBareMetal
+	if err := m.Validate(); err != nil {
+		t.Fatalf("bare-metal rejected: %v", err)
+	}
+	if got := m.DeployArtifact(); got != "kimi-k2.7-code/kimi-k2.7-code.service" {
+		t.Errorf("bare-metal artifact = %q", got)
+	}
+
+	m.Deploy = "nomad"
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "deploy") {
+		t.Errorf("unknown deploy mode accepted: %v", err)
+	}
+}
+
+func TestDeployBareMetalRejectsImage(t *testing.T) {
+	// runtime: custom is the only way to set Image, and bare-metal
+	// builds no container for it to name.
+	m := valid()
+	m.Deploy = DeployBareMetal
+	m.Runtime = RuntimeCustom
+	m.Image = "ghcr.io/latere-ai/whatever:v1"
+	m.Args = nil
+	err := m.Validate()
+	if err == nil || !strings.Contains(err.Error(), "no container") {
+		t.Fatalf("bare-metal with image accepted: %v", err)
+	}
+}
+
 func TestFlagValue(t *testing.T) {
 	m := valid()
 	m.Args = []string{"--a=1", "--b", "2", "--c", "--d", "--e="}
