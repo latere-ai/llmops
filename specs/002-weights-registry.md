@@ -45,14 +45,14 @@ s3://latere-models/<hf_org>/<hf_name>/<hf_revision_sha>/
 
 CLI (Go or Python — decide in impl, prefer Go for parity with sibling repos):
 
-1. `mirror pull <hf_repo>[@revision]` — resolve revision to SHA; download via
+1. `llmops pull <hf_repo>[@revision]` — resolve revision to SHA; download via
    `hf download` with `hf_transfer` enabled; **safetensors-only policy**
    (reject pickle/bin); verify SHA256 against HF LFS OIDs.
-2. `mirror push` — upload with `s5cmd` to the revision-pinned prefix; write
+2. `llmops push` — upload with `s5cmd` to the revision-pinned prefix; write
    `_manifest.json` last (its presence = mirror complete/atomic).
-3. `mirror verify <s3_prefix>` — re-hash or use S3 Checksum-SHA256 to confirm
+3. `llmops verify <s3_prefix>` — re-hash or use S3 Checksum-SHA256 to confirm
    integrity against the manifest.
-4. `mirror ls` — list mirrored models/revisions.
+4. `llmops list` — list mirrored models/revisions.
 
 Runs as a k8s Job (needs bandwidth + scratch disk), also runnable
 locally. `deploy/mirror/job.yaml` is the parameterized Job
@@ -92,10 +92,10 @@ concrete — they add ~4 TB and serve no inference purpose.
 
 ## Acceptance criteria
 
-1. `mirror pull && mirror push` on a small test repo (<5 GB) produces a
+1. `llmops pull && llmops push` on a small test repo (<5 GB) produces a
    revision-pinned prefix with a valid `_manifest.json`; re-running is
    idempotent (no re-upload of verified files).
-2. `mirror verify` detects a corrupted/truncated file (e2e test with injected
+2. `llmops verify` detects a corrupted/truncated file (e2e test with injected
    corruption).
 3. Non-safetensors weight files are rejected with a clear error (test).
 4. All four serving-format repos above mirrored; sizes and SHA256 manifests

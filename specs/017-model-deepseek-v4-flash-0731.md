@@ -80,7 +80,7 @@ worth doing when a second model needs it — Future, not here.
 ## Acceptance criteria
 
 1. Mirrored to S3 at the pinned revision with `_manifest.json` written
-   and `mirror verify` clean ([[002-weights-registry]] AC4).
+   and `llmops verify` clean ([[002-weights-registry]] AC4).
 2. `models/deepseek-v4-flash-0731.yaml` validates: `sglang`, b200 x8 x1,
    TP8, DSpark on, `deepseek-v4`/`deepseekv4` parsers,
    `--trust-remote-code`.

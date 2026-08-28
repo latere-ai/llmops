@@ -8,7 +8,7 @@ affects:
   - internal/manifest/
   - internal/runtime/prep.go
   - internal/mirror/
-  - cmd/mirror/
+  - cmd/llmops/
   - DEPLOY.md
 effort: small
 created: 2026-08-28
@@ -118,19 +118,19 @@ serving process must not verify a directory that a `mirror` run is
 writing, whether the two are pods on a node or a systemd unit and an
 operator's shell.
 
-### `mirror freeze`
+### `llmops freeze`
 
-`mirror pull` fetches a repo to a directory and `mirror push` writes
+`llmops pull` fetches a repo to a directory and `llmops push` writes
 `_manifest.json` **into the store** as the last step. There is no way to
 get that provenance artifact into a directory that will be served
 directly. Add:
 
 ```sh
-go run ./cmd/mirror freeze <repo>@<sha> --dir <weights-root>/<repo>/<sha>/
+llmops freeze <repo>@<sha> --dir <weights-root>/<repo>/<sha>/
 ```
 
 It runs the same tree/verify path as `push` and writes `_manifest.json`
-in place. `mirror verify` already accepts any store prefix, so it works
+in place. `llmops verify` already accepts any store prefix, so it works
 on a local directory with no change.
 
 ## Diagram
@@ -138,9 +138,9 @@ on a local directory with no change.
 ```mermaid
 flowchart TB
   HF["Hugging Face<br/>repo@revision"]
-  HF -->|"mirror pull"| DIR["local directory"]
-  DIR -->|"mirror push"| S3["s3://bucket/repo/rev/"]
-  DIR -->|"mirror freeze"| LOC["local store<br/>+ _manifest.json"]
+  HF -->|"llmops pull"| DIR["local directory"]
+  DIR -->|"llmops push"| S3["s3://bucket/repo/rev/"]
+  DIR -->|"llmops freeze"| LOC["local store<br/>+ _manifest.json"]
 
   S3 -->|"load: nvme-cache<br/>fetch + verify → cache"| E1["engine"]
   S3 -->|"load: s3-stream<br/>vllm only, no staging"| E2["engine"]
@@ -177,7 +177,7 @@ deferral rather than the intended shape.
   expand tilde in `ExecStart`.
 - **AC5** A corrupt file in a local store fails the launch with a hash
   mismatch and does **not** attempt a fetch.
-- **AC6** `mirror freeze` writes a `_manifest.json` that `mirror verify`
+- **AC6** `llmops freeze` writes a `_manifest.json` that `llmops verify`
   accepts, and that `PrepareWeights` then verifies clean.
 - **AC7** `make e2e` covers pull → freeze → serve on a local directory
   with no S3 and no MinIO in the path.

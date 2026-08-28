@@ -54,10 +54,11 @@ carrying meaning.
 case one level down to keep the rare ones tidy is the wrong trade. Nine
 flat verbs is well inside what a CLI carries without grouping.
 
-**One name changes: `ls` becomes `list`.** As `mirror ls` the object was
-implied by the group; as a top-level verb `llmops ls` reads as a shell
-idiom and says nothing about what is listed. This is the only verb whose
-spelling moves, and it moves now because nothing depends on it yet.
+**One name changes: `ls` becomes `list`.** Under the old grouping the
+object was implied by the group name; as a top-level verb `llmops ls`
+reads as a shell idiom and says nothing about what is listed. This is the
+only verb whose spelling moves, and it moves now because nothing depends
+on it yet.
 
 Grouping stays available if a genuinely separate object appears later —
 the jspace plane in [[014-jspace-readout-api]] is the plausible one. It
@@ -109,7 +110,7 @@ func run(args []string, out, errw io.Writer) int
 
 So this is routing, not rewriting. `cmd/llmops/main.go` dispatches on
 `args[0]` to the existing bodies, which move beside it as
-`cmd/llmops/{mirror,serve,validate,bench}.go` in package `main`. Their
+`cmd/llmops/{weights,serve,bench}.go` in package `main`. Their
 tests move with them unchanged, which is the point: a refactor that
 needed its tests rewritten would not be a refactor.
 
@@ -134,8 +135,8 @@ answered it.
 | Place | From | To |
 |---|---|---|
 | Dockerfiles | `ENTRYPOINT ["runtime", "serve"]` | `ENTRYPOINT ["llmops", "serve"]` |
-| systemd unit ([[020-bare-metal-packaging]]) | `/usr/local/bin/runtime serve` | `/usr/local/bin/llmops serve` |
-| Makefile | `go run ./cmd/runtime validate` | `go run ./cmd/llmops validate` |
+| systemd unit ([[020-bare-metal-packaging]]) | the old binary name in `ExecStart` | `/usr/local/bin/llmops serve` |
+| Makefile | a per-binary `go run ./cmd/…` | `go run ./cmd/llmops validate` |
 | `make dist` | three binaries per platform | one |
 | DEPLOY.md, README | three tools | one, with subcommands |
 
@@ -153,7 +154,10 @@ answered it.
   rather than silently doing nothing, so a stale invocation from a
   script or a doc is loud.
 - **AC4** `make dist` produces exactly one binary per platform, and it is
-  smaller than the three it replaces. The number goes in this spec.
+  smaller than the three it replaces. **Measured: 27.7 MB across three
+  arm64 binaries becomes 7.2 MB in one** — a little under a quarter,
+  since the shared packages were being linked three times and `-s -w`
+  now strips the result.
 - **AC5** Every Dockerfile entrypoint, the Makefile, DEPLOY.md, README
   and [[020-bare-metal-packaging]]'s unit file name `llmops`; no
   reference to a `runtime`, `mirror` or `bench` binary survives.

@@ -48,7 +48,7 @@ exists yet — see the model's spec for what the block is.
 specs/      design specs (start at specs/README.md)
 models/     per-model manifests: pinned HF revision, S3 prefix, engine config
 deploy/     k8s LeaderWorkerSet manifests, one per model
-cmd/        mirror (HF → S3 freeze), runtime (container entrypoint), bench
+cmd/        llmops — the one command (weights, serving, bench)
 internal/   manifest schema, mirror logic, runtime shim, bench, deploycheck
 ```
 
@@ -63,30 +63,53 @@ Go 1.27 or newer, no cgo, no other build dependency:
 git clone https://github.com/latere-ai/llmops.git
 cd llmops
 make build                       # go build ./...
-go build -o bin/ ./cmd/...       # mirror, runtime, bench binaries
+make dist                        # static linux/amd64 + linux/arm64 binaries
 ```
 
 `make hooks` installs the pre-commit gofmt and modernizer guard.
 
 ## Usage
 
+Everything is one command:
+
+```
+llmops pull     <hf_repo>[@revision] --dir <dir>    fetch from Hugging Face
+llmops freeze   <hf_repo>@<sha> --dir <dir>         write the store manifest in place
+llmops push     <hf_repo>@<sha> --dir <dir> --bucket <root>
+llmops verify   <prefix>                            check a store against its manifest
+llmops list     --bucket <root>                     what is mirrored there
+llmops serve    --manifest <manifest.yaml>          run a model
+llmops validate <models-dir | manifest.yaml>        check manifests and deploys
+llmops bench    --url <base> --model <id>           measure a live endpoint
+llmops version
+```
+
 Freeze a model into S3 (one-time per revision). `--bucket` takes any
 s5cmd-reachable root, so AWS S3, DO Spaces, R2 and MinIO all work:
 
 ```sh
-go run ./cmd/mirror pull moonshotai/Kimi-K2.7-Code --dir /scratch/kimi
-go run ./cmd/mirror push moonshotai/Kimi-K2.7-Code@<sha> \
+llmops pull moonshotai/Kimi-K2.7-Code --dir /scratch/kimi
+llmops push moonshotai/Kimi-K2.7-Code@<sha> \
     --dir /scratch/kimi --bucket s3://<your-bucket>
-go run ./cmd/mirror verify s3://<your-bucket>/moonshotai/Kimi-K2.7-Code/<sha>/
+llmops verify s3://<your-bucket>/moonshotai/Kimi-K2.7-Code/<sha>/
 ```
 
-Validate manifests, then serve. `runtime serve` is the container
-entrypoint, so on a GPU node it runs from the built image rather than
-from a checkout:
+A host that serves from its own disk needs no bucket at all — `freeze`
+writes the same checksummed manifest in place, and `load: local` verifies
+it before every start:
 
 ```sh
-go run ./cmd/runtime validate models/
-bin/runtime serve --manifest /etc/llmops/model.yaml
+llmops pull   Qwen/Qwen3.8-27B@<sha> --dir ~/.models/Qwen/Qwen3.8-27B/<sha>
+llmops freeze Qwen/Qwen3.8-27B@<sha> --dir ~/.models/Qwen/Qwen3.8-27B/<sha>
+```
+
+Validate manifests, then serve. `llmops serve` is both the container
+entrypoint and what the systemd unit runs, so the two deploy modes start
+the same process:
+
+```sh
+llmops validate models/
+llmops serve --manifest /etc/llmops/model.yaml --cache-root ~/.models
 ```
 
 Each model endpoint speaks OpenAI Chat natively (engine passthrough)
@@ -98,7 +121,7 @@ same package.
 Benchmark a live endpoint:
 
 ```sh
-go run ./cmd/bench --url http://kimi-k2-7-code.llmops.svc:8000 \
+llmops bench --url http://kimi-k2-7-code.llmops.svc:8000 \
     --model kimi-k2.7-code --concurrency 8 --requests 32 --out report.json
 ```
 
@@ -108,7 +131,7 @@ go run ./cmd/bench --url http://kimi-k2-7-code.llmops.svc:8000 \
 make test        # go vet + go test ./...
 make cover       # same, with a ≥90% total-statement coverage gate
 make validate    # every models/*.yaml plus its deploy/*/lws.yaml
-make e2e         # mirror pull→push→verify and runtime serve→ready→metrics
+make e2e         # pull→push→verify and serve→ready→metrics
 make e2e-local   # the whole pipeline on a laptop
 ```
 

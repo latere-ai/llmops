@@ -98,7 +98,7 @@ subsystems, so fit-time and serve-time code share `artifact.py`.
                               # config, per-tensor sha256, pkg version
    ```
 
-   Note: `_manifest.json` is written at `mirror push` time and is
+   Note: `_manifest.json` is written at `llmops push` time and is
    frozen — lens files are deliberately **not** added to it. The
    artifact is self-verifying via `lens.json` hashes; the runtime
    fetches it in a separate prep step ([[013-inengine-capture]]'s

@@ -6,7 +6,7 @@ depends_on:
 affects:
   - internal/manifest/
   - internal/deploycheck/
-  - cmd/runtime/
+  - cmd/llmops/
   - deploy/
   - Makefile
   - DEPLOY.md
@@ -29,7 +29,7 @@ The two modes differ only in how the process is started and supervised.
 Everything the repo actually owns is shared:
 
 ```
-models/<name>.yaml   ->   runtime serve --manifest   ->   engine
+models/<name>.yaml   ->   llmops serve --manifest   ->   engine
         ^                          ^
         |                          |
    same schema            same health contract,
@@ -104,7 +104,7 @@ Description=llmops <name>
 After=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/runtime serve --manifest /etc/llmops/<name>.yaml
+ExecStart=/usr/local/bin/llmops serve --manifest /etc/llmops/<name>.yaml
 Restart=on-failure
 RestartSec=10
 

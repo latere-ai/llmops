@@ -109,7 +109,7 @@ as [[006-model-minimax-m3]] does.
 
 0. **License gate**: internal-use determination recorded in the manifest
    `license_note`. Blocks AC7.
-1. Mirrored to S3 at the pinned revision, `mirror verify` clean. Needs
+1. Mirrored to S3 at the pinned revision, `llmops verify` clean. Needs
    ≥1.6 TB of scratch on the mirror Job and roughly doubles registry
    storage — size both before starting.
 2. `models/kimi-k3.yaml` validates: `sglang`, b300 x8 x1, TP8 + DCP8,

@@ -80,7 +80,7 @@ its only possible one** — any single-GPU host without a cluster can use
 it.
 
 **A GB10 model runs as a host process under systemd, launched by the
-same `runtime serve --manifest` entrypoint the fleet uses.**
+same `llmops serve --manifest` entrypoint the fleet uses.**
 
 The Kubernetes path solves fleet problems: scheduling across a pool,
 restarting on another node, rolling a version without downtime, packing
@@ -94,7 +94,7 @@ Everything above the deploy layer is kept unchanged:
 |---|---|
 | `models/<name>.yaml` | one source of truth for model config, same schema |
 | `mirror` + `_manifest.json` | pinned revisions, per-file checksums; provenance does not need a cluster |
-| `runtime serve` | `/healthz`, `/ready`, `/metrics`, OpenAI passthrough, and the Anthropic surface at `/anthropic/v1/messages` |
+| `llmops serve` | `/healthz`, `/ready`, `/metrics`, OpenAI passthrough, and the Anthropic surface at `/anthropic/v1/messages` |
 | `bench` | an HTTP client; it does not care what started the server |
 | `load: local` | [[021-local-weight-loading]], now the only sensible mode here |
 
@@ -192,8 +192,8 @@ flowchart LR
     L2["one 128 GB pool<br/>CPU + GPU share it"]
     L3["systemd unit"]
   end
-  F3 --> R1["runtime serve --manifest"]
-  L3 --> R2["runtime serve --manifest"]
+  F3 --> R1["llmops serve --manifest"]
+  L3 --> R2["llmops serve --manifest"]
   R1 --> E["same manifest schema<br/>same health + Anthropic surface"]
   R2 --> E
 ```

@@ -59,8 +59,8 @@ presence marks the mirror complete. Re-running is idempotent; verify
 anytime:
 
 ```sh
-mirror verify s3://<your-bucket>/<org>/<repo>/<sha>/
-mirror ls --bucket s3://<your-bucket>
+llmops verify s3://<your-bucket>/<org>/<repo>/<sha>/
+llmops list --bucket s3://<your-bucket>
 ```
 
 Then pin the model in `models/<name>.yaml` (see the configuration
@@ -106,7 +106,7 @@ curl -s localhost:8000/anthropic/v1/messages -H 'Content-Type: application/json'
 curl -s localhost:8000/metrics | grep llmops
 
 # Baseline benchmark (produces the numbers the gateway's cost config needs)
-go run ./cmd/bench --url http://localhost:8000 --model kimi-k2.7-code \
+llmops bench --url http://localhost:8000 --model kimi-k2.7-code \
   --concurrency 8 --requests 32 --out report.json
 ```
 
@@ -193,7 +193,7 @@ only carries model-specific flags.
 
 - **`/ready` stuck at 503** — check pod logs: still `weights: fetching`
   (normal on cold start), engine crash (log tail shows the engine's
-  stderr), or a hash mismatch (store corruption → run `mirror verify`).
+  stderr), or a hash mismatch (store corruption → run `llmops verify`).
 - **404 from `/v1/chat/completions`** — model id in the request must be
   the manifest `name` (that's the served model name).
 - **mirror Job fails mid-upload** — re-run it; push is idempotent and

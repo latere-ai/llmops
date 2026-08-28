@@ -125,7 +125,7 @@ at the cost of that margin; it is a deliberate change, not a default.
 
 The vendor checkpoint is served **as published** — BF16 safetensors, no
 conversion, no derived artifacts, no third-party requantization. `mirror
-pull` fetches `Qwen/Qwen3.8-27B` at the pinned SHA, `mirror freeze`
+pull` fetches `Qwen/Qwen3.8-27B` at the pinned SHA, `llmops freeze`
 writes `_manifest.json`, and [[021-local-weight-loading]] verifies it in
 place at launch. The freeze chain has exactly one link and it ends at
 the vendor.

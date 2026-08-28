@@ -32,11 +32,11 @@ this proves the integrations the fakes stub out.
 `e2e/local/run.sh` drives, and tears down, the full chain:
 
 1. MinIO container up; `latere-models` bucket created.
-2. `mirror pull Qwen/Qwen3-0.6B@<pinned sha>` → real HF download,
+2. `llmops pull Qwen/Qwen3-0.6B@<pinned sha>` → real HF download,
    SHA256 verification against LFS OIDs.
-3. `mirror push` → s5cmd upload to MinIO; `mirror verify` re-hashes
-   from the store; `mirror ls` shows the revision.
-4. `runtime serve` with `e2e/local/qwen3-0.6b.yaml` (a real manifest:
+3. `llmops push` → s5cmd upload to MinIO; `llmops verify` re-hashes
+   from the store; `llmops list` shows the revision.
+4. `llmops serve` with `e2e/local/qwen3-0.6b.yaml` (a real manifest:
    pinned revision, `system_prompt` enforced) — weights staged from
    MinIO into a local cache dir, engine launched via
    `LLMOPS_ENGINE_CMD` (mlx_lm), `/ready` flips.
