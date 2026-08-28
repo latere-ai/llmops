@@ -33,7 +33,7 @@ undamaged and leaves roughly 45 GB of the node free. Those are different
 products.
 
 It is also the first model that makes the registry's scope explicit:
-**open-llms serves what we choose to own, not only frontier-scale MoE.**
+**llmops serves what we choose to own, not only frontier-scale MoE.**
 If that is wrong, this spec is where to say so.
 
 ## Facts (verified 2026-08-28)
@@ -72,10 +72,8 @@ default for a new model. It is not the choice here because the pinned
 SGLang tag `v0.5.16` predates this model, so its coverage of these
 layers is unverified, and bumping SGLang for one model on one node is
 more disruption than using the second engine. If a later SGLang bump
-carries the architecture, moving this model is a manifest edit.
-
-If SGLang is bumped later for another reason and carries the
-architecture, moving this model is a manifest edit and nothing else.
+carries the architecture, moving this model is a manifest edit and
+nothing else.
 
 ## Memory budget
 

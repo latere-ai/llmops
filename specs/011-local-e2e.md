@@ -24,7 +24,7 @@ S3-protocol store (MinIO in Docker — the same wire protocol the
 production bucket and `deploy/mirror/job.yaml` will use, exercising
 `S3_ENDPOINT_URL` + s5cmd), and a real local engine (`mlx_lm server` on
 Apple silicon, OpenAI-compatible) standing in for SGLang via the
-runtime's `OPENLLMS_ENGINE_CMD` override. The CI fakes prove logic;
+runtime's `LLMOPS_ENGINE_CMD` override. The CI fakes prove logic;
 this proves the integrations the fakes stub out.
 
 ## Scope
@@ -39,10 +39,10 @@ this proves the integrations the fakes stub out.
 4. `runtime serve` with `e2e/local/qwen3-0.6b.yaml` (a real manifest:
    pinned revision, `system_prompt` enforced) — weights staged from
    MinIO into a local cache dir, engine launched via
-   `OPENLLMS_ENGINE_CMD` (mlx_lm), `/ready` flips.
+   `LLMOPS_ENGINE_CMD` (mlx_lm), `/ready` flips.
 5. Assertions: `/v1/chat/completions` (non-stream + stream) returns
    model output; `/anthropic/v1/messages` returns an Anthropic-shaped
-   response; `/metrics` exposes `openllms_weights_load_seconds`;
+   response; `/metrics` exposes `llmops_weights_load_seconds`;
    system-prompt enforcement observable in output.
    Agentic surface: reasoning content (thinking enabled per-request via
    `chat_template_kwargs`), an OpenAI tool call (`tool_calls` with the
@@ -56,7 +56,7 @@ this proves the integrations the fakes stub out.
 ## Engine health-path note
 
 `mlx_lm server` may not expose `/health` (SGLang/vLLM do). The shim's
-engine health path becomes overridable via `OPENLLMS_ENGINE_HEALTH_PATH`
+engine health path becomes overridable via `LLMOPS_ENGINE_HEALTH_PATH`
 (default `/health`) — test-covered.
 
 ## Acceptance criteria

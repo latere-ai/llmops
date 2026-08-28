@@ -19,7 +19,7 @@ dispatched_task_id: null
 
 ## Overview
 
-First Python code in this repo: `lens/` (package `openllms-jlens`,
+First Python code in this repo: `lens/` (package `llmops-jlens`,
 managed with `uv` like `e2e/local/.venv`) fits a **Jacobian lens** for
 a model+revision and publishes it as a versioned artifact next to the
 frozen weights in S3. The lens is the offline half of real-time jspace
@@ -51,7 +51,7 @@ pipeline on the [[011-local-e2e]] stack (Qwen3-0.6B @
 ```
 lens/
   pyproject.toml           # uv-managed; python 3.12; entry point: jlens
-  src/openllms_jlens/
+  src/llmops_jlens/
     fitting.py             # VJP estimator, merge, checkpointing
     artifact.py            # save/load/verify (safetensors + lens.json)
     convert.py             # upstream jacobian-lens .pt importer
@@ -135,7 +135,7 @@ subsystems, so fit-time and serve-time code share `artifact.py`.
 6. Same corpus + seed ⇒ byte-identical `lens.json` tensor hashes
    across two runs (determinism test).
 7. `make test-lens` (pytest + coverage) gates ≥90% for
-   `src/openllms_jlens/` fit-side modules, wired into CI beside the Go
+   `src/llmops_jlens/` fit-side modules, wired into CI beside the Go
    `cover` target.
 
 ## Non-goals

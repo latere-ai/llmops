@@ -1,6 +1,6 @@
 # Local full-stack e2e model (specs/011). Same schema and validation as
 # production manifests; the engine is substituted at run time via
-# OPENLLMS_ENGINE_CMD (mlx_lm on Apple silicon), which is why runtime
+# LLMOPS_ENGINE_CMD (mlx_lm on Apple silicon), which is why runtime
 # still says sglang here.
 name: qwen3-0.6b-local
 hf_repo: Qwen/Qwen3-0.6B

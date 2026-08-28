@@ -103,7 +103,7 @@ func validateContainer(m *manifest.Manifest, lws map[string]any, template string
 	default:
 		// Compare the repository component exactly, not by substring:
 		// the registry prefix is the operator's to choose, but
-		// open-llms-runtime-sglang and open-llms-runtime-sglang-k3 are
+		// llmops-runtime-sglang and llmops-runtime-sglang-k3 are
 		// different engines and each contains the other's prefix.
 		if got, want := imageName(image), m.EngineImage(); got != want {
 			return fmt.Errorf("%s image %q does not match runtime %q: image name %q, want %q",
@@ -129,8 +129,8 @@ func validateContainer(m *manifest.Manifest, lws map[string]any, template string
 }
 
 // imageName reduces an image reference to its repository component:
-// "nexus.example.com:5000/latere/open-llms-runtime-sglang:v1" becomes
-// "open-llms-runtime-sglang". Registry, port, tag, and digest all drop.
+// "nexus.example.com:5000/latere/llmops-runtime-sglang:v1" becomes
+// "llmops-runtime-sglang". Registry, port, tag, and digest all drop.
 func imageName(ref string) string {
 	name := ref
 	if i := strings.LastIndex(name, "/"); i >= 0 {

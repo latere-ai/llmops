@@ -24,7 +24,7 @@ func main() {
 
 func newMirror(errw io.Writer) *mirror.Mirror {
 	hf := mirror.NewHFClient()
-	if base := os.Getenv("OPENLLMS_HF_BASE"); base != "" {
+	if base := os.Getenv("LLMOPS_HF_BASE"); base != "" {
 		hf.Base = base
 	}
 	return &mirror.Mirror{

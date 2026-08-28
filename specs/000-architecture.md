@@ -1,5 +1,5 @@
 ---
-title: open-llms Architecture (umbrella)
+title: llmops Architecture (umbrella)
 status: draft
 depends_on: []
 affects:
@@ -12,7 +12,7 @@ author: changkun
 dispatched_task_id: null
 ---
 
-# open-llms Architecture (umbrella)
+# llmops Architecture (umbrella)
 
 ## Overview
 
@@ -34,7 +34,7 @@ Three planes:
    [[008-k8s-serving]]).
 3. **Access plane** — endpoints registered in Lux, the latere model
    gateway, which owns authn, keys, usage, and cost
-   ([[009-lux-integration]]). open-llms does **not** re-implement gateway
+   ([[009-lux-integration]]). llmops does **not** re-implement gateway
    concerns.
 
 ## Constraints

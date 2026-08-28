@@ -80,7 +80,7 @@ are properties of the model; the root is a property of the machine.
 
 Putting an absolute path in the manifest was the obvious first design
 and is wrong: `models/*.yaml` is checked into a public repo, so a path
-like `/home/<user>/dev/open-llms/weights/...` would commit one machine's
+like `/home/<user>/dev/llmops/weights/...` would commit one machine's
 directory layout — and one person's username — into the shared source of
 truth, and would need editing on every host. Splitting it this way keeps
 one manifest describing the model everywhere, while the operator still

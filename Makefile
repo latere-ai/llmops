@@ -69,24 +69,24 @@ e2e:
 	$(GO) test ./... -run 'E2E' -v
 
 images:
-	docker build -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:dev .
-	docker build -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/open-llms-runtime-sglang-k3:dev .
-	docker build -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:dev .
-	docker build -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:dev .
+	docker build -f Dockerfile.sglang -t $(REGISTRY)/llmops-runtime-sglang:dev .
+	docker build -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/llmops-runtime-sglang-k3:dev .
+	docker build -f Dockerfile.vllm -t $(REGISTRY)/llmops-runtime-vllm:dev .
+	docker build -f Dockerfile.mirror -t $(REGISTRY)/llmops-mirror:dev .
 
 # Versioned build + push of all four images (see DEPLOY.md).
 # Usage: make release VERSION=v0.1.0 [REGISTRY=...]
 # (requires docker login against $(REGISTRY))
 release:
 	@test -n "$(VERSION)" || { echo "usage: make release VERSION=vX.Y.Z [REGISTRY=...]"; exit 1; }
-	docker build --platform linux/amd64 -f Dockerfile.sglang -t $(REGISTRY)/open-llms-runtime-sglang:$(VERSION) .
-	docker build --platform linux/amd64 -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/open-llms-runtime-sglang-k3:$(VERSION) .
-	docker build --platform linux/amd64 -f Dockerfile.vllm -t $(REGISTRY)/open-llms-runtime-vllm:$(VERSION) .
-	docker build --platform linux/amd64 -f Dockerfile.mirror -t $(REGISTRY)/open-llms-mirror:$(VERSION) .
-	docker push $(REGISTRY)/open-llms-runtime-sglang:$(VERSION)
-	docker push $(REGISTRY)/open-llms-runtime-sglang-k3:$(VERSION)
-	docker push $(REGISTRY)/open-llms-runtime-vllm:$(VERSION)
-	docker push $(REGISTRY)/open-llms-mirror:$(VERSION)
+	docker build --platform linux/amd64 -f Dockerfile.sglang -t $(REGISTRY)/llmops-runtime-sglang:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/llmops-runtime-sglang-k3:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.vllm -t $(REGISTRY)/llmops-runtime-vllm:$(VERSION) .
+	docker build --platform linux/amd64 -f Dockerfile.mirror -t $(REGISTRY)/llmops-mirror:$(VERSION) .
+	docker push $(REGISTRY)/llmops-runtime-sglang:$(VERSION)
+	docker push $(REGISTRY)/llmops-runtime-sglang-k3:$(VERSION)
+	docker push $(REGISTRY)/llmops-runtime-vllm:$(VERSION)
+	docker push $(REGISTRY)/llmops-mirror:$(VERSION)
 
 # Host binaries for the bare-metal deploy mode (specs/020). GOARCH must
 # be set explicitly: a plain `go build` targets the builder, so building

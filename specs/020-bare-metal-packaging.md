@@ -100,11 +100,11 @@ both modes' artifacts live in one place:
 
 ```ini
 [Unit]
-Description=open-llms <name>
+Description=llmops <name>
 After=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/runtime serve --manifest /etc/openllms/<name>.yaml
+ExecStart=/usr/local/bin/runtime serve --manifest /etc/llmops/<name>.yaml
 Restart=on-failure
 RestartSec=10
 
@@ -120,7 +120,7 @@ The engine itself is installed on the host, not vendored here — a pinned
 ### The install path
 
 `runtime install --manifest <path>` writes the unit, installs the
-manifest to `/etc/openllms/`, and reloads systemd. One command, so the
+manifest to `/etc/llmops/`, and reloads systemd. One command, so the
 documented procedure cannot drift from what the binary does — which is
 the failure mode a hand-written DEPLOY.md section would have.
 

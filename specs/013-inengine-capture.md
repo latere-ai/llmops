@@ -51,14 +51,14 @@ pinned to the image versions from [[001-inference-engine-selection]]
 
 ## Components
 
-1. **Capture core** (`lens/src/openllms_jlens/capture/`,
+1. **Capture core** (`lens/src/llmops_jlens/capture/`,
    engine-agnostic) —
    - `LensApplier`: loads `A_l`/`V_l` from the local `_lens/` dir
-     (path via `OPENLLMS_LENS_DIR`), keeps them on the rank-0 GPU,
+     (path via `LLMOPS_LENS_DIR`), keeps them on the rank-0 GPU,
      computes top-k per batch row per monitored layer.
    - **Watchlist mass** is computed here, not in the Go shim (the shim
      has no tokenizer): watchlists arrive as
-     `OPENLLMS_LENS_WATCHLISTS` (JSON `{name: [strings]}`), are
+     `LLMOPS_LENS_WATCHLISTS` (JSON `{name: [strings]}`), are
      tokenized against the model dir's tokenizer (first-token ids for
      multi-token entries), and per-list softmax mass is computed over
      the **full** lens distribution — no top-k truncation.
@@ -75,8 +75,8 @@ pinned to the image versions from [[001-inference-engine-selection]]
      hook alone cannot know it), so [[014-jspace-readout-api]] can
      compute lens/final agreement without joining streams. A
      non-blocking ring buffer is drained by a writer thread dialing
-     the shim's unix socket (`OPENLLMS_LENS_SOCK`, default
-     `/run/openllms/jspace.sock`) with reconnect+backoff.
+     the shim's unix socket (`LLMOPS_LENS_SOCK`, default
+     `/run/llmops/jspace.sock`) with reconnect+backoff.
      **Backpressure drops frames (counted), never blocks the forward
      pass.**
 2. **vLLM adapter** — a general plugin (entry-point group
@@ -89,7 +89,7 @@ pinned to the image versions from [[001-inference-engine-selection]]
    implementation time.
 3. **SGLang adapter** — SGLang has no plugin API: a patch module
    installed in `Dockerfile.sglang` (activated via `sitecustomize`
-   when `OPENLLMS_LENS_ENABLED=1`) wraps the model runner after load
+   when `LLMOPS_LENS_ENABLED=1`) wraps the model runner after load
    and registers the same hooks; row→request mapping from the
    schedule batch's per-request `rid`s. The patch asserts
    `sglang.__version__` equals the pinned version and otherwise
@@ -124,7 +124,7 @@ pinned to the image versions from [[001-inference-engine-selection]]
      `_manifest.json`, see [[012-lens-fitting-pipeline]]). Missing or
      rank-mismatched artifact fails `Serve` **before** engine launch.
    - `Serve` sets `cmd.Env = append(os.Environ(),
-     OPENLLMS_LENS_ENABLED, _DIR, _TOPK, _SOCK, _WATCHLISTS...)` on
+     LLMOPS_LENS_ENABLED, _DIR, _TOPK, _SOCK, _WATCHLISTS...)` on
      the engine process.
 
 ## Performance budget
@@ -156,7 +156,7 @@ pinned to the image versions from [[001-inference-engine-selection]]
 7. Go side: `PrepareLens` fetch/verify/corruption-refetch tests;
    manifest validation tests (unknown lens fields, bad rank/topk,
    lens+custom); `Serve` env rendering test via the
-   `OPENLLMS_ENGINE_CMD` override.
+   `LLMOPS_ENGINE_CMD` override.
 8. Bench: ≤2% tok/s regression vs `lens.enabled: false`, same
    model/hardware.
 

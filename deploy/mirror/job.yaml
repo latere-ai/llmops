@@ -16,7 +16,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: mirror-model # override per model, e.g. mirror-kimi-k2-7-code
-  namespace: open-llms
+  namespace: llmops
 spec:
   backoffLimit: 2
   ttlSecondsAfterFinished: 86400
@@ -25,7 +25,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: mirror
-          image: ghcr.io/latere-ai/open-llms-mirror:v0.1.0
+          image: ghcr.io/latere-ai/llmops-mirror:v0.1.0
           # push re-verifies the scratch dir against the HF tree, then
           # uploads and writes _manifest.json last (idempotent; safe to
           # re-run after interruption).

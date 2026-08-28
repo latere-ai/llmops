@@ -1,4 +1,4 @@
-# open-llms specs
+# llmops specs
 
 Design specs for owning the open-weights inference layer end to end.
 Start with [000-architecture](000-architecture.md) (umbrella), then read in
@@ -48,9 +48,9 @@ three ways and mirrored regardless.
 unified CPU/GPU memory, an arm64 CPU, and no cluster around it.
 
 Two things it does **not** change. There is no new engine: both pinned
-engine images already publish linux/arm64 and vLLM's sm_120 kernels run
-on this GPU (measured, 019), so 001's
-decision record stands. And the Kubernetes deploy path is untouched —
+engine images already publish linux/arm64, and vLLM's sm_120 kernels run
+on this GPU by binary compatibility (measured, 019), so 001's decision
+record stands. And the Kubernetes deploy path is untouched —
 020 adds a **second** deploy mode beside it (installed binary under
 systemd, selected by a `deploy:` field on the manifest), because a
 one-GPU host has nothing for a scheduler to schedule. Both modes share

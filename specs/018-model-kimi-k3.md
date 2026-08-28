@@ -118,11 +118,11 @@ as [[006-model-minimax-m3]] does.
 3. `deploycheck` validates `workerTemplate` — image, GPU limit, and
    presence — whenever `gpu.nodes > 1`, with a test that fails without
    the rule. Closes the gap the H200 fallback would otherwise walk into.
-4. `Dockerfile.sglang` builds `open-llms-runtime-sglang-k3` from the
+4. `Dockerfile.sglang` builds `llmops-runtime-sglang-k3` from the
    pinned CUDA 13 K3 image, selected with
    `--build-arg SGLANG_IMAGE=…`; the two images differ only in their
    base, so they share one Dockerfile. `make release` publishes it
-   alongside the others. The shared `open-llms-runtime-sglang` image is **not** bumped
+   alongside the others. The shared `llmops-runtime-sglang` image is **not** bumped
    to cu130 — that would force an r580+ driver on the h200/b200 pools
    for the sake of a model that does not run there.
 5. Serves on the 8x B300 node via LWS. `--mamba-full-memory-ratio` is
@@ -135,7 +135,7 @@ as [[006-model-minimax-m3]] does.
    **with `reasoning_content` echoed back**, all three `reasoning_effort`
    levels, an image-input request (first multimodal request in the
    fleet), and a ≥256K-context request.
-7. Registered in Lux as `open-llms/kimi-k3` — gated on AC0. Verify Lux
+7. Registered in Lux as `llmops/kimi-k3` — gated on AC0. Verify Lux
    passes `reasoning_effort` through and does not strip
    `reasoning_content` from assistant turns on the way back in.
 8. Baseline benchmark recorded (010 harness), and re-run once the vendor

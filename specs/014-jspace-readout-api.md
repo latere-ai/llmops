@@ -24,7 +24,7 @@ new process: the shim already owns the listener, the request path, and
 `metrics()`.
 
 The shim is the **server** side of the socket: it listens on
-`OPENLLMS_LENS_SOCK` before the engine starts (mirroring how `Serve`
+`LLMOPS_LENS_SOCK` before the engine starts (mirroring how `Serve`
 brings up `/healthz` before weights load), and the capture publisher
 dials in. Ingest failure or a missing publisher degrades to "no
 jspace data" — proxying is never affected.
@@ -56,17 +56,17 @@ jspace data" — proxying is never affected.
      count) from the ring index.
    - Both return `409 lens disabled` when `jspace == nil`.
 4. **Metric families** (appended in `metrics()` beside
-   `openllms_weights_load_seconds`, same text-format pattern) —
-   - `openllms_jspace_layer_entropy{layer}` — rolling mean entropy of
+   `llmops_weights_load_seconds`, same text-format pattern) —
+   - `llmops_jspace_layer_entropy{layer}` — rolling mean entropy of
      the renormalized top-k readout per layer (intent-formation depth
      profile; top-k truncation noted in HELP text).
-   - `openllms_jspace_lens_final_agreement{layer}` — fraction of
+   - `llmops_jspace_lens_final_agreement{layer}` — fraction of
      frames whose lens top-1 equals the frame's sampled `token_id`
      (how early the output is "decided"; frames carry the sampled
      token per [[013-inengine-capture]] §1).
-   - `openllms_jspace_watchlist_mass{layer,list}` — rolling mean of
+   - `llmops_jspace_watchlist_mass{layer,list}` — rolling mean of
      the `watch` map (full-softmax mass, computed capture-side).
-   - `openllms_jspace_frames_dropped_total` — hub-side drops;
+   - `llmops_jspace_frames_dropped_total` — hub-side drops;
      capture-side drops arrive as a counter frame and are added.
 5. **Access control** — `/jspace/*` is an operator surface: excluded
    from Lux registration ([[009-lux-integration]]); k8s NetworkPolicy

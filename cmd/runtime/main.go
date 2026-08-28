@@ -57,7 +57,7 @@ func run(args []string, out, errw io.Writer) int {
 				Log:        errw,
 			}
 			// Test/debug hook: replace the engine command.
-			if o := os.Getenv("OPENLLMS_ENGINE_CMD"); o != "" {
+			if o := os.Getenv("LLMOPS_ENGINE_CMD"); o != "" {
 				opts.EngineCmd = strings.Fields(o)
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -52,7 +52,7 @@ where fitting is affordable.
      top-k routed experts only; readout degradation quantified on a
      small MoE reference before acceptance (criterion 3).
 3. **Fit job** — a k8s Job in `deploy/` running a dedicated fit image
-   (torch + transformers + `openllms-jlens` + `s5cmd`; **not** the
+   (torch + transformers + `llmops-jlens` + `s5cmd`; **not** the
    serving images — vLLM/SGLang lack the training stack). Weights
    arrive by the same `s5cmd sync` + `_manifest.json` verify pattern
    as `internal/runtime/prep.go`; artifacts upload via `jlens upload`

@@ -85,7 +85,7 @@ func TestServeManifestLoadError(t *testing.T) {
 func TestServeEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	p := writeValid(t, dir)
-	t.Setenv("OPENLLMS_ENGINE_CMD", "sleep 60")
+	t.Setenv("LLMOPS_ENGINE_CMD", "sleep 60")
 	var out, errw strings.Builder
 	code := run([]string{"serve", "--manifest", p, "--port", "0", "--cache-root", t.TempDir()}, &out, &errw)
 	if code == 0 {

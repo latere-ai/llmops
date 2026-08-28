@@ -9,7 +9,7 @@ ENGINE_PORT=18001
 MINIO_PORT=19000
 SHA=c1899de289a04d12100db370d81485cdf75e47ca
 REPO=Qwen/Qwen3-0.6B
-SCRATCH="${OPENLLMS_E2E_SCRATCH:-$HOME/.cache/openllms-e2e}"
+SCRATCH="${LLMOPS_E2E_SCRATCH:-$HOME/.cache/llmops-e2e}"
 VENV=e2e/local/.venv
 BIN=e2e/local/bin
 LOG="$SCRATCH/serve.log"
@@ -22,7 +22,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 DOCKER=$(command -v docker || command -v podman) || true
 cleanup() {
   [ -n "$SERVE_PID" ] && kill "$SERVE_PID" 2>/dev/null || true
-  [ -n "$DOCKER" ] && "$DOCKER" rm -f openllms-minio >/dev/null 2>&1 || true
+  [ -n "$DOCKER" ] && "$DOCKER" rm -f llmops-minio >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -45,11 +45,11 @@ go build -o "$BIN/" ./cmd/runtime ./cmd/mirror ./cmd/bench
 lsof -ti ":$PORT" -ti ":$ENGINE_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
 
 say "minio: local S3 on :$MINIO_PORT"
-"$DOCKER" rm -f openllms-minio >/dev/null 2>&1 || true
+"$DOCKER" rm -f llmops-minio >/dev/null 2>&1 || true
 # /data lives on the host, not the container VM's disk — a 1.5 GB
 # model plus multipart temp files can exhaust a nearly-full VM.
 mkdir -p "$SCRATCH/minio"
-"$DOCKER" run -d --name openllms-minio -p "$MINIO_PORT:9000" \
+"$DOCKER" run -d --name llmops-minio -p "$MINIO_PORT:9000" \
   -v "$SCRATCH/minio:/data" \
   quay.io/minio/minio server /data >/dev/null
 export AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin
@@ -72,7 +72,7 @@ say "runtime: validate manifest"
 "$BIN"/runtime validate e2e/local/qwen3-0.6b.yaml
 
 serve() {
-  OPENLLMS_ENGINE_CMD="$VENV/bin/python -m mlx_lm server --model {model} --host 127.0.0.1 --port {port} --chat-template-args {\"enable_thinking\":false}" \
+  LLMOPS_ENGINE_CMD="$VENV/bin/python -m mlx_lm server --model {model} --host 127.0.0.1 --port {port} --chat-template-args {\"enable_thinking\":false}" \
     "$BIN"/runtime serve --manifest e2e/local/qwen3-0.6b.yaml \
     --port "$PORT" --engine-port "$ENGINE_PORT" --cache-root "$SCRATCH/cache" \
     >>"$LOG" 2>&1 &
@@ -113,7 +113,7 @@ ARESP=$(curl -fsS "http://127.0.0.1:$PORT/anthropic/v1/messages" \
 echo "$ARESP" | grep -q '"type":"message"' || fail "not an anthropic message: $ARESP"
 
 say "assert: metrics gauge"
-curl -fsS "http://127.0.0.1:$PORT/metrics" | grep -q "openllms_weights_load_seconds" || fail "gauge missing"
+curl -fsS "http://127.0.0.1:$PORT/metrics" | grep -q "llmops_weights_load_seconds" || fail "gauge missing"
 
 say "assert: reasoning (thinking enabled per-request)"
 RRESP=$(curl -fsS "http://127.0.0.1:$PORT/v1/chat/completions" \

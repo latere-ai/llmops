@@ -16,24 +16,24 @@ dispatched_task_id: null
 
 ## Overview
 
-open-llms endpoints become first-class providers in Lux, the latere
+llmops endpoints become first-class providers in Lux, the latere
 model gateway. Lux owns authn (virtual keys), usage/cost tracking,
-limits, and audit; open-llms exposes plain in-cluster OpenAI-compatible
+limits, and audit; llmops exposes plain in-cluster OpenAI-compatible
 services. The goal state: a latere app switches from
-`openrouter/deepseek/...` to `open-llms/deepseek-v4-pro` by changing a
+`openrouter/deepseek/...` to `llmops/deepseek-v4-pro` by changing a
 model string in Lux — nothing else.
 
 ## Scope
 
 1. **Provider registration**: each served model registered in Lux as a
    provider/route pointing at the in-cluster service DNS
-   (`http://<model>.open-llms.svc:8000/v1`). Mechanism follows Lux's
+   (`http://<model>.llmops.svc:8000/v1`). Mechanism follows Lux's
    existing provider config (investigate at impl time whether that's DB
    config, yaml, or dashboard — reuse, don't invent).
 2. **Cost model**: per-model amortized $/token entered into Lux's cost
    tracking so router-vs-self-host economics stay visible (inputs: node
    cost, measured tok/s from 010 benchmarks).
-3. **Naming**: model ids stable and versioned: `open-llms/<name>` with
+3. **Naming**: model ids stable and versioned: `llmops/<name>` with
    the manifest revision surfaced in Lux metadata.
 
 ## Acceptance criteria

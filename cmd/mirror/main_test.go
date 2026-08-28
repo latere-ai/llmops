@@ -43,7 +43,7 @@ func startHub(t *testing.T) (scratch string) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	t.Setenv("OPENLLMS_HF_BASE", srv.URL)
+	t.Setenv("LLMOPS_HF_BASE", srv.URL)
 	return scratch
 }
 
@@ -148,7 +148,7 @@ func TestCLIUsageErrors(t *testing.T) {
 }
 
 func TestCLIPullError(t *testing.T) {
-	t.Setenv("OPENLLMS_HF_BASE", "http://127.0.0.1:1")
+	t.Setenv("LLMOPS_HF_BASE", "http://127.0.0.1:1")
 	var out, errw strings.Builder
 	if code := run([]string{"pull", "acme/tiny", "--dir", t.TempDir()}, &out, &errw); code == 0 {
 		t.Fatal("pull against dead hub must fail")

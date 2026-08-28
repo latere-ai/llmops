@@ -76,7 +76,7 @@ spec:
 func TestValidateHappyAndCustom(t *testing.T) {
 	models, deploy := t.TempDir(), t.TempDir()
 	writeModel(t, models, "tiny", "sglang", "")
-	writeLWS(t, deploy, "tiny", goodLWS("tiny", "ghcr.io/latere-ai/open-llms-runtime-sglang:v0.1.0", "8"))
+	writeLWS(t, deploy, "tiny", goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v0.1.0", "8"))
 	writeModel(t, models, "ocr", "custom", "")
 	writeLWS(t, deploy, "ocr", goodLWS("ocr", "ghcr.io/latere-ai/custom:v1", "8"))
 	if err := Validate(models, deploy); err != nil {
@@ -94,22 +94,22 @@ func TestValidateFailures(t *testing.T) {
 		{"empty yaml", "\n", "empty yaml"},
 		{"bad yaml", ":\n:", ""},
 		{"no lws doc", "kind: Service\n", "no LeaderWorkerSet"},
-		{"wrong name", goodLWS("other", "ghcr.io/latere-ai/open-llms-runtime-sglang:v1", "8"), "metadata.name"},
-		{"wrong image", goodLWS("tiny", "ghcr.io/latere-ai/open-llms-runtime-vllm:v1", "8"), "does not match runtime"},
-		{"wrong gpus", goodLWS("tiny", "ghcr.io/latere-ai/open-llms-runtime-sglang:v1", "4"), "nvidia.com/gpu"},
+		{"wrong name", goodLWS("other", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "metadata.name"},
+		{"wrong image", goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-vllm:v1", "8"), "does not match runtime"},
+		{"wrong gpus", goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "4"), "nvidia.com/gpu"},
 		{
 			"wrong size",
-			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/open-llms-runtime-sglang:v1", "8"), "size: 1", "size: 2", 1),
+			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "size: 1", "size: 2", 1),
 			"size",
 		},
 		{
 			"wrong ready path",
-			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/open-llms-runtime-sglang:v1", "8"), "/ready", "/readyz", 1),
+			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "/ready", "/readyz", 1),
 			"readinessProbe",
 		},
 		{
 			"wrong live path",
-			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/open-llms-runtime-sglang:v1", "8"), "/healthz", "/live", 1),
+			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "/healthz", "/live", 1),
 			"livenessProbe",
 		},
 		{
@@ -186,7 +186,7 @@ spec:
 }
 
 func TestValidateMultiNode(t *testing.T) {
-	const good = "ghcr.io/latere-ai/open-llms-runtime-sglang:v0.1.0"
+	const good = "ghcr.io/latere-ai/llmops-runtime-sglang:v0.1.0"
 
 	t.Run("consistent worker passes", func(t *testing.T) {
 		models, deploy := t.TempDir(), t.TempDir()
@@ -211,7 +211,7 @@ func TestValidateMultiNode(t *testing.T) {
 		},
 		{
 			"worker on the wrong engine image",
-			multiNodeLWS("big", good, "ghcr.io/latere-ai/open-llms-runtime-vllm:v0.1.0", "8"),
+			multiNodeLWS("big", good, "ghcr.io/latere-ai/llmops-runtime-vllm:v0.1.0", "8"),
 			"workerTemplate image",
 		},
 		{
@@ -247,7 +247,7 @@ func TestValidateMultiNode(t *testing.T) {
 		models, deploy := t.TempDir(), t.TempDir()
 		writeModel(t, models, "tiny", "sglang", "")
 		writeLWS(t, deploy, "tiny", strings.Replace(
-			multiNodeLWS("tiny", good, "ghcr.io/latere-ai/open-llms-runtime-vllm:v1", "4"), "size: 2", "size: 1", 1))
+			multiNodeLWS("tiny", good, "ghcr.io/latere-ai/llmops-runtime-vllm:v1", "4"), "size: 2", "size: 1", 1))
 		if err := Validate(models, deploy); err != nil {
 			t.Fatal(err)
 		}
@@ -276,8 +276,8 @@ func writeK3Model(t *testing.T, dir, name string) {
 // and they are not interchangeable — K3 needs the CUDA 13 branch build,
 // and the shared image must not inherit its r580+ driver floor.
 func TestValidateEngineImageIsNotSubstringMatched(t *testing.T) {
-	const shared = "ghcr.io/latere-ai/open-llms-runtime-sglang:v0.1.0"
-	const k3 = "ghcr.io/latere-ai/open-llms-runtime-sglang-k3:v0.1.0"
+	const shared = "ghcr.io/latere-ai/llmops-runtime-sglang:v0.1.0"
+	const k3 = "ghcr.io/latere-ai/llmops-runtime-sglang-k3:v0.1.0"
 
 	cases := []struct {
 		name    string
@@ -322,9 +322,9 @@ func TestValidateEngineImageIsNotSubstringMatched(t *testing.T) {
 	// The registry prefix stays the operator's choice.
 	t.Run("any registry prefix passes", func(t *testing.T) {
 		for _, image := range []string{
-			"open-llms-runtime-sglang:v1",
-			"nexus.example.com:5000/latere/open-llms-runtime-sglang:v1",
-			"123.dkr.ecr.eu-central-1.amazonaws.com/latere/open-llms-runtime-sglang@sha256:abc",
+			"llmops-runtime-sglang:v1",
+			"nexus.example.com:5000/latere/llmops-runtime-sglang:v1",
+			"123.dkr.ecr.eu-central-1.amazonaws.com/latere/llmops-runtime-sglang@sha256:abc",
 		} {
 			models, deploy := t.TempDir(), t.TempDir()
 			writeModel(t, models, "m", "sglang", "")
@@ -338,12 +338,12 @@ func TestValidateEngineImageIsNotSubstringMatched(t *testing.T) {
 
 func TestImageName(t *testing.T) {
 	cases := map[string]string{
-		"open-llms-runtime-sglang":                     "open-llms-runtime-sglang",
-		"open-llms-runtime-sglang:v1":                  "open-llms-runtime-sglang",
-		"ghcr.io/latere-ai/open-llms-runtime-vllm:dev": "open-llms-runtime-vllm",
-		"nexus.example.com:5000/x/open-llms-mirror:v1": "open-llms-mirror",
-		"repo/name@sha256:deadbeef":                    "name",
-		"":                                             "",
+		"llmops-runtime-sglang":                     "llmops-runtime-sglang",
+		"llmops-runtime-sglang:v1":                  "llmops-runtime-sglang",
+		"ghcr.io/latere-ai/llmops-runtime-vllm:dev": "llmops-runtime-vllm",
+		"nexus.example.com:5000/x/llmops-mirror:v1": "llmops-mirror",
+		"repo/name@sha256:deadbeef":                 "name",
+		"":                                          "",
 	}
 	for ref, want := range cases {
 		if got := imageName(ref); got != want {

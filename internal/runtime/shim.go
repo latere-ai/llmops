@@ -23,7 +23,7 @@ import (
 //
 //	GET /healthz  — 200 once the process is up
 //	GET /ready    — 200 when weights are loaded AND the engine is healthy
-//	GET /metrics  — engine Prometheus output + openllms_* gauges
+//	GET /metrics  — engine Prometheus output + llmops_* gauges
 //	anything else — reverse-proxied to the engine (token streaming safe)
 type Shim struct {
 	engine      *url.URL
@@ -300,7 +300,7 @@ func (s *Shim) metrics(w http.ResponseWriter) {
 		}
 		resp.Body.Close()
 	}
-	fmt.Fprintf(w, "# HELP openllms_weights_load_seconds Time spent preparing weights before engine start.\n")
-	fmt.Fprintf(w, "# TYPE openllms_weights_load_seconds gauge\n")
-	fmt.Fprintf(w, "openllms_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
+	fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
+	fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")
+	fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
 }

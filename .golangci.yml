@@ -33,4 +33,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/latere-ai/open-llms
+        - github.com/latere-ai/llmops

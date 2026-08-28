@@ -1,11 +1,11 @@
-# Runtime image: SGLang engine + open-llms entrypoint (specs/003).
+# Runtime image: SGLang engine + llmops entrypoint (specs/003).
 # Engine version pinned per specs/001 — bump deliberately.
 #
 # SGLANG_IMAGE selects the base. Two images are built from this one file
 # because they differ only in that base:
 #
-#   default  lmsysorg/sglang:v0.5.16-cu129        -> open-llms-runtime-sglang
-#   K3       lmsysorg/sglang:kimi-k3-...          -> open-llms-runtime-sglang-k3
+#   default  lmsysorg/sglang:v0.5.16-cu129        -> llmops-runtime-sglang
+#   K3       lmsysorg/sglang:kimi-k3-...          -> llmops-runtime-sglang-k3
 #
 # They stay separate *images* on purpose (specs/018 AC4): K3 support lives
 # in a CUDA 13 branch build needing an r580+ driver, and folding it into
@@ -36,4 +36,4 @@ RUN pip install --no-cache-dir huggingface_hub[hf_transfer] \
        | tar -xz -C /usr/local/bin s5cmd
 EXPOSE 8000
 ENTRYPOINT ["runtime", "serve"]
-CMD ["--manifest", "/etc/openllms/model.yaml"]
+CMD ["--manifest", "/etc/llmops/model.yaml"]

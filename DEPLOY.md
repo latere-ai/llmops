@@ -10,8 +10,8 @@ customization knob. Design rationale lives in [`specs/`](./specs/README.md).
 | What | Why | Notes |
 |---|---|---|
 | An S3-compatible bucket | frozen weights home | AWS S3, DO Spaces, R2, MinIO, anything s5cmd speaks. Enable versioning; Object Lock if supported. The checked-in manifests point at a bucket named `latere-models`; change `s3_prefix` in `models/*.yaml` to use your own. |
-| k8s Secret `mirror-s3` in ns `open-llms` | mirror Job + node cache credentials | keys: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, plus `S3_ENDPOINT_URL` for non-AWS. Optional `HF_TOKEN` for gated repos. |
-| GPU nodes + NVIDIA GPU Operator | run the engines | node pools labeled `latere.ai/gpu-pool: h200`, `b200`, or `b300`; NVMe at `/var/cache/openllms`. The `b300` pool needs an **r580+ driver** — Kimi-K3's image is CUDA 13 only |
+| k8s Secret `mirror-s3` in ns `llmops` | mirror Job + node cache credentials | keys: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, plus `S3_ENDPOINT_URL` for non-AWS. Optional `HF_TOKEN` for gated repos. |
+| GPU nodes + NVIDIA GPU Operator | run the engines | node pools labeled `latere.ai/gpu-pool: h200`, `b200`, or `b300`; NVMe at `/var/cache/llmops`. The `b300` pool needs an **r580+ driver** — Kimi-K3's image is CUDA 13 only |
 | [LeaderWorkerSet](https://github.com/kubernetes-sigs/lws) installed | pod-group primitive for (multi-node-ready) serving | `kubectl apply --server-side -f https://github.com/kubernetes-sigs/lws/releases/latest/download/manifests.yaml` |
 | `docker login <registry>` | push images | default registry is `ghcr.io/latere-ai`; any OCI registry works (ECR, Nexus, Harbor, …) via `REGISTRY=` |
 
@@ -29,10 +29,10 @@ builds and pushes `linux/amd64` images (default registry
 `ghcr.io/latere-ai`; the image *names* are fixed, the registry prefix is
 yours):
 
-- `open-llms-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](./specs/001-inference-engine-selection.md)) + `runtime` entrypoint
-- `open-llms-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools
-- `open-llms-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
-- `open-llms-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job
+- `llmops-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](./specs/001-inference-engine-selection.md)) + `runtime` entrypoint
+- `llmops-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools
+- `llmops-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
+- `llmops-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job
 
 Engine versions are pinned in the Dockerfiles — bump them deliberately,
 never `latest`. After a release, update the image references in
@@ -49,8 +49,8 @@ disk live there):
 ```sh
 # Edit deploy/mirror/job.yaml: set metadata.name, MODEL_REPO, MODEL_SHA,
 # --bucket, and the scratch volume size (>= the model's size on disk).
-kubectl -n open-llms apply -f deploy/mirror/job.yaml
-kubectl -n open-llms logs -f job/mirror-<name>
+kubectl -n llmops apply -f deploy/mirror/job.yaml
+kubectl -n llmops logs -f job/mirror-<name>
 ```
 
 The Job pulls from HF (SHA256-verified against LFS OIDs, safetensors
@@ -70,21 +70,21 @@ manifest has a consistent `deploy/<name>/lws.yaml`.
 ## 3. Deploy and serve
 
 ```sh
-kubectl create namespace open-llms --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace llmops --dry-run=client -o yaml | kubectl apply -f -
 
 # The runtime reads the manifest from a ConfigMap:
-kubectl -n open-llms create configmap kimi-k2-7-code-manifest \
+kubectl -n llmops create configmap kimi-k2-7-code-manifest \
   --from-file=model.yaml=models/kimi-k2.7-code.yaml
 
-kubectl -n open-llms apply -f deploy/kimi-k2.7-code/lws.yaml
+kubectl -n llmops apply -f deploy/kimi-k2.7-code/lws.yaml
 ```
 
 Watch startup — the pod stages weights from S3 onto node NVMe, then
 launches the engine:
 
 ```sh
-kubectl -n open-llms get pods -w
-kubectl -n open-llms logs -f <pod>   # "weights: fetching ..." then "launching sglang"
+kubectl -n llmops get pods -w
+kubectl -n llmops logs -f <pod>   # "weights: fetching ..." then "launching sglang"
 ```
 
 `/ready` returns 503 during load and 200 when the engine is up
@@ -92,7 +92,7 @@ kubectl -n open-llms logs -f <pod>   # "weights: fetching ..." then "launching s
 node skip the download entirely). Verify the endpoint:
 
 ```sh
-kubectl -n open-llms port-forward svc/kimi-k2-7-code 8000 &
+kubectl -n llmops port-forward svc/kimi-k2-7-code 8000 &
 
 # OpenAI surface (native engine passthrough)
 curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
@@ -102,8 +102,8 @@ curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
 curl -s localhost:8000/anthropic/v1/messages -H 'Content-Type: application/json' \
   -d '{"model":"kimi-k2.7-code","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
 
-# Metrics (engine passthrough + openllms_weights_load_seconds)
-curl -s localhost:8000/metrics | grep openllms
+# Metrics (engine passthrough + llmops_weights_load_seconds)
+curl -s localhost:8000/metrics | grep llmops
 
 # Baseline benchmark (produces the numbers the gateway's cost config needs)
 go run ./cmd/bench --url http://localhost:8000 --model kimi-k2.7-code \
@@ -111,7 +111,7 @@ go run ./cmd/bench --url http://localhost:8000 --model kimi-k2.7-code \
 ```
 
 Finally register the in-cluster endpoint
-(`http://<name>.open-llms.svc:8000/v1`) as a provider in Lux. Lux is the
+(`http://<name>.llmops.svc:8000/v1`) as a provider in Lux. Lux is the
 only ingress; engine pods are never exposed publicly.
 
 **License gates:** check `license`/`license_note` in the model manifest
@@ -162,12 +162,12 @@ only carries model-specific flags.
 
 | Knob | Default | Purpose |
 |---|---|---|
-| `--manifest` | `/etc/openllms/model.yaml` | manifest path (mounted ConfigMap) |
+| `--manifest` | `/etc/llmops/model.yaml` | manifest path (mounted ConfigMap) |
 | `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, `/v1/*`, `/anthropic/v1/messages`) |
 | `--engine-port` | 30000 | engine's internal port |
 | `--cache-root` | `/cache` | NVMe cache mount; keyed by repo+revision, flock-shared across pods on a node |
-| `OPENLLMS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |
-| `OPENLLMS_ENGINE_HEALTH_PATH` | `/health` | engine health endpoint, for engines that differ |
+| `LLMOPS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |
+| `LLMOPS_ENGINE_HEALTH_PATH` | `/health` | engine health endpoint, for engines that differ |
 
 ### Deploy manifest (`deploy/<name>/lws.yaml`)
 
@@ -176,8 +176,8 @@ only carries model-specific flags.
 | replicas | `spec.replicas` | whole serving groups (capacity planning, not HPA) |
 | group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL) and requires a `workerTemplate` (CI-checked: same image and GPU count as the leader, no probes — only rank 0 serves HTTP) |
 | GPU count/pool | `resources.limits."nvidia.com/gpu"`, `nodeSelector` | must match manifest `gpu` (CI-checked); pool label selects H200 / B200 / B300 |
-| image ref | container `image` | `<REGISTRY>/open-llms-runtime-<engine>:<VERSION>` from `make release`; registry prefix is free, name must match the manifest runtime (CI-checked) |
-| NVMe cache | `volumes.cache.hostPath` | `/var/cache/openllms`; a prefetch DaemonSet warms it |
+| image ref | container `image` | `<REGISTRY>/llmops-runtime-<engine>:<VERSION>` from `make release`; registry prefix is free, name must match the manifest runtime (CI-checked) |
+| NVMe cache | `volumes.cache.hostPath` | `/var/cache/llmops`; a prefetch DaemonSet warms it |
 | `/dev/shm` | `volumes.shm.sizeLimit` | ≥32Gi (vLLM requires it for DeepSeek-V4-class models) |
 | probe budget | `readinessProbe.failureThreshold` | cold start for the big models is minutes — size it accordingly |
 

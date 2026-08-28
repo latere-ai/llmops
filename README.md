@@ -1,14 +1,18 @@
-# open-llms
+# llmops
 
-[![ci](https://github.com/latere-ai/open-llms/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/open-llms/actions/workflows/ci.yml)
+[![ci](https://github.com/latere-ai/llmops/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/llmops/actions/workflows/ci.yml)
 [![go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 Latere's end-to-end inference layer for open-weights models. Instead of
 renting model access through a router (OpenRouter et al.), this repo owns
-the full path: weights frozen in our own S3 bucket, inference engines
-running on bare-metal Kubernetes GPU nodes, OpenAI-compatible endpoints
-registered behind Lux, the Latere model gateway.
+the full path: weights frozen and checksummed, inference engines running
+on GPUs we control, OpenAI- and Anthropic-compatible endpoints registered
+behind Lux, the Latere model gateway.
+
+Two deploy modes share one manifest schema and one serving contract:
+Kubernetes for the multi-GPU fleet, and an installed binary under systemd
+for a single-GPU host with no cluster around it.
 
 ## Why own the inference layer
 
@@ -56,8 +60,8 @@ images, freeze weights, deploy, and every configuration knob.
 Go 1.27 or newer, no cgo, no other build dependency:
 
 ```sh
-git clone https://github.com/latere-ai/open-llms.git
-cd open-llms
+git clone https://github.com/latere-ai/llmops.git
+cd llmops
 make build                       # go build ./...
 go build -o bin/ ./cmd/...       # mirror, runtime, bench binaries
 ```
@@ -82,7 +86,7 @@ from a checkout:
 
 ```sh
 go run ./cmd/runtime validate models/
-bin/runtime serve --manifest /etc/openllms/model.yaml
+bin/runtime serve --manifest /etc/llmops/model.yaml
 ```
 
 Each model endpoint speaks OpenAI Chat natively (engine passthrough)
@@ -94,7 +98,7 @@ same package.
 Benchmark a live endpoint:
 
 ```sh
-go run ./cmd/bench --url http://kimi-k2-7-code.open-llms.svc:8000 \
+go run ./cmd/bench --url http://kimi-k2-7-code.llmops.svc:8000 \
     --model kimi-k2.7-code --concurrency 8 --requests 32 --out report.json
 ```
 

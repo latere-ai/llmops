@@ -99,7 +99,7 @@ worth doing when a second model needs it — Future, not here.
    `--speculative-algorithm DSPARK`, each leg with its own
    `--flush-cache` — reporting P50/P99 TTFT, TPOT, accepted length, and
    total throughput. DSpark stays on only if that comparison earns it.
-7. Registered in Lux as `open-llms/deepseek-v4-flash-0731`; cost per 1M
+7. Registered in Lux as `llmops/deepseek-v4-flash-0731`; cost per 1M
    tokens derived from AC6's measured throughput.
 
 ## Naming

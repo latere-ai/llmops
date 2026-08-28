@@ -192,11 +192,11 @@ func TestValidateDSpark(t *testing.T) {
 
 func TestEngineImage(t *testing.T) {
 	m := valid()
-	if got := m.EngineImage(); got != "open-llms-runtime-sglang" {
+	if got := m.EngineImage(); got != "llmops-runtime-sglang" {
 		t.Errorf("sglang EngineImage = %q", got)
 	}
 	m.Runtime = RuntimeVLLM
-	if got := m.EngineImage(); got != "open-llms-runtime-vllm" {
+	if got := m.EngineImage(); got != "llmops-runtime-vllm" {
 		t.Errorf("vllm EngineImage = %q", got)
 	}
 	m.Runtime = RuntimeCustom
@@ -207,7 +207,7 @@ func TestEngineImage(t *testing.T) {
 	// K3 runs on the CUDA 13 branch build, not the shared image.
 	k3 := valid()
 	k3.HFRepo = "moonshotai/Kimi-K3"
-	if got := k3.EngineImage(); got != "open-llms-runtime-sglang-k3" {
+	if got := k3.EngineImage(); got != "llmops-runtime-sglang-k3" {
 		t.Errorf("Kimi-K3 EngineImage = %q", got)
 	}
 }

@@ -1,4 +1,4 @@
-# Runtime image: vLLM engine + open-llms entrypoint (specs/003).
+# Runtime image: vLLM engine + llmops entrypoint (specs/003).
 # Engine version pinned per specs/001 — bump deliberately.
 #
 # v0.28.0 (2026-08-26) is the floor for the gb10 pool (specs/019): it
@@ -20,4 +20,4 @@ RUN pip install --no-cache-dir "vllm[runai]" runai-model-streamer runai-model-st
        | tar -xz -C /usr/local/bin s5cmd
 EXPOSE 8000
 ENTRYPOINT ["runtime", "serve"]
-CMD ["--manifest", "/etc/openllms/model.yaml"]
+CMD ["--manifest", "/etc/llmops/model.yaml"]

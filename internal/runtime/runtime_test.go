@@ -318,7 +318,7 @@ func TestShimContract(t *testing.T) {
 	// Metrics: engine passthrough + our gauge.
 	code, body := get("/metrics")
 	if code != 200 || !strings.Contains(body, "engine_requests_total 42") ||
-		!strings.Contains(body, "openllms_weights_load_seconds 3") {
+		!strings.Contains(body, "llmops_weights_load_seconds 3") {
 		t.Fatalf("/metrics = %d %q", code, body)
 	}
 	// Inference paths proxy through.
@@ -334,7 +334,7 @@ func TestShimMetricsEngineDown(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	shim.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "openllms_weights_load_seconds") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "llmops_weights_load_seconds") {
 		t.Fatalf("metrics with engine down = %d %q", rec.Code, rec.Body.String())
 	}
 }
@@ -355,7 +355,7 @@ func TestShimMetricsOmitsEngineErrorBody(t *testing.T) {
 	shim.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "openllms_weights_load_seconds") {
+	if !strings.Contains(body, "llmops_weights_load_seconds") {
 		t.Fatalf("runtime gauge missing: %d %q", rec.Code, body)
 	}
 	if strings.Contains(body, "<html>") || strings.Contains(body, "503 Service Unavailable") {
@@ -449,7 +449,7 @@ func TestServeE2E(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(body), "openllms_weights_load_seconds") {
+	if !strings.Contains(string(body), "llmops_weights_load_seconds") {
 		t.Fatalf("metrics missing gauge: %s", body)
 	}
 
