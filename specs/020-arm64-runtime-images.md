@@ -1,181 +1,137 @@
 ---
-title: "llama.cpp runtime (GGUF engine)"
+title: "arm64 runtime images"
 status: draft
 depends_on:
-  - 001-inference-engine-selection.md
   - 003-serving-runtime.md
   - 019-gb10-serving-target.md
 affects:
-  - internal/manifest/
-  - internal/runtime/serve.go
-  - Dockerfile.llamacpp
-  - models/
-effort: medium
+  - Dockerfile.sglang
+  - Dockerfile.vllm
+  - Dockerfile.mirror
+  - Makefile
+  - DEPLOY.md
+effort: small
 created: 2026-08-28
 updated: 2026-08-28
 author: changkun
 dispatched_task_id: null
 ---
 
-# llama.cpp runtime (GGUF engine)
+# arm64 runtime images
+
+## Problem
+
+[[019-gb10-serving-target]] adds an arm64 node class. The **engines are
+already there** — `lmsysorg/sglang:v0.5.16-cu129` and
+`vllm/vllm-openai:v0.28.0` both publish `linux/arm64`, and vLLM builds
+SM121 kernels. No new engine is needed and
+[[001-inference-engine-selection]] stands unamended.
+
+What is not there is **our own layer on top of them**. Three things in
+this repo assume amd64, and each one silently produces a broken or
+absent arm64 image rather than a build failure that names the cause.
+
+### 1. s5cmd is downloaded as an amd64 binary
+
+Every runtime Dockerfile fetches the same asset:
+
+```
+s5cmd_2.3.0_Linux-64bit.tar.gz     # amd64 only
+```
+
+Upstream publishes `s5cmd_2.3.0_Linux-arm64.tar.gz` alongside it. On an
+arm64 build the amd64 binary installs without error and fails at weight
+fetch time — which is after the image is published, after the pod
+starts, and inside the `nvme-cache` path that every model depends on.
+
+### 2. `make release` pins the platform
+
+```make
+docker build --platform linux/amd64 -f Dockerfile.sglang ...
+```
+
+All four images are built `linux/amd64` unconditionally, so an arm64
+image is never produced at all.
+
+### 3. The Go stage builds for the build host
+
+`CGO_ENABLED=0 go build` targets the builder's architecture. Under
+`--platform` the base image changes but `GOARCH` does not follow unless
+it is set, so a cross-build silently emits an amd64 binary into an arm64
+image.
 
 ## Decision
 
-**Add `runtime: llamacpp` as a third engine, GGUF-only, built for
-aarch64 + SM121.** This amends [[001-inference-engine-selection]], which
-picked SGLang primary and vLLM second and explicitly deferred any third
-engine. The deferral held while every node was x86_64 with discrete HBM.
-[[019-gb10-serving-target]] ends that.
+**Use Docker's built-in `TARGETARCH`, and build the release images with
+`buildx` for both platforms.**
 
-## Why a third engine rather than a port
+`TARGETARCH` is populated automatically by BuildKit (`amd64`, `arm64`),
+so no new build arg is introduced and the same Dockerfile serves both.
 
-Three independent reasons, any one of which is sufficient:
-
-1. **No aarch64 SM121 build of either incumbent exists** at the pinned
-   versions, and the community aarch64 SGLang builds that do exist sit
-   below the v0.5.16 floor [[017-model-deepseek-v4-flash-0731]] needs.
-   Porting means owning a PyTorch-for-arm64-CUDA-13 build, which is a
-   larger commitment than adding an engine.
-2. **llama.cpp builds natively on aarch64 + CUDA 13** with no Python or
-   PyTorch in the dependency path at all. The CGO-free Go entrypoint and
-   a C++ engine is a materially smaller image than either incumbent.
-3. **Only llama.cpp has sub-4-bit GGUF quantization.** That is not a
-   nice-to-have on this class: it is the difference between a 284B model
-   fitting in 128 GB and not fitting. See
-   [[023-model-deepseek-v4-flash-0731-gb10]].
-
-The shim is unaffected. `llama-server` serves OpenAI-compatible
-`/v1/chat/completions`, so the passthrough and the
-`llmdialect` Anthropic translation in [[003-serving-runtime]] work
-unchanged. This is the whole reason a third engine is cheap.
-
-## Schema changes
-
-### Runtime enum
-
-```go
-RuntimeLlamaCpp = "llamacpp"
+```dockerfile
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOARCH=${TARGETARCH} go build -o /out/runtime ./cmd/runtime
 ```
 
-Validated exactly like `sglang` and `vllm`: `image` forbidden, `args`
-required. `EngineImage()` returns `open-llms-runtime-llamacpp`.
-
-### Weights are a file, not a directory
-
-`PrepareWeights` returns a *directory* today, and both incumbent engines
-take a directory as `--model-path`/positional. llama.cpp takes a single
-`.gguf` **file**, and multi-shard GGUF repos publish
-`<name>-00001-of-000NN.gguf` with the engine discovering the rest from
-the first shard.
-
-Add one optional manifest field, required when `runtime: llamacpp`:
-
-```yaml
-weights_file: DeepSeek-V4-Flash-0731-UD-IQ2_M-00001-of-00003.gguf
+```dockerfile
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      amd64) S5=Linux-64bit ;; \
+      arm64) S5=Linux-arm64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/peak/s5cmd/releases/download/v2.3.0/s5cmd_2.3.0_${S5}.tar.gz" \
+       | tar -xz -C /usr/local/bin s5cmd
 ```
 
-It is a path relative to the prepared weights directory. Validation:
-must be non-empty and end in `.gguf` for llamacpp; must be absent for
-every other runtime. Resolving it against the prepared directory keeps
-`PrepareWeights` unchanged and keeps the "engine gets a path" contract
-in one place.
+The explicit `exit 1` on an unknown architecture is the point of the
+`case`: a new platform must fail the build rather than inherit amd64.
 
-### Vision projector
+Release builds become multi-arch:
 
-Multimodal GGUF ships the vision tower as a separate projector file.
-
-```yaml
-mmproj_file: mmproj-Qwen3.8-27B-f16.gguf
+```make
+docker buildx build --platform linux/amd64,linux/arm64 --push ...
 ```
 
-Optional, llamacpp-only, same relative-path rule. Present → the engine
-command gains `--mmproj <resolved>`. Absent → the model is text-only
-even if the checkpoint has a vision tower, and the engine starts
-cleanly, so nothing surfaces the mistake.
+### The K3 image stays amd64
 
-The runtime cannot detect this: whether a checkpoint has a vision tower
-is not knowable from the manifest. So the requirement is declared
-per-repo, the way `requiredArgs` already pins flags a model cannot
-legally run without. [[022-model-qwen3.8-27b]] AC4 is the first user.
+`open-llms-runtime-sglang-k3` pins a base tag that is itself
+amd64-specific (`lmsysorg/sglang:kimi-k3-…-amd64`), and Kimi-K3 needs a
+GPU pool that has nothing to do with this class. It is built
+single-platform on purpose, not by omission.
 
-### DSpark validation must not fire here
+## Verification gap
 
-`validateDSpark` keys on `--speculative-algorithm=DSPARK` and enforces
-SGLang's constraints (`pp_size == 1`, DP attention off, no separate
-draft path). Those are **SGLang flag semantics**, not model semantics.
-llama.cpp does generic speculative decoding through `--model-draft` with
-a separate draft file, which is the exact shape `validateDSpark`
-currently rejects.
-
-Scope the check to `runtime: sglang`. Without this, the GB10 DeepSeek
-manifest either fails validation or is forced into a false shape.
-
-## Engine command
-
-```
-llama-server --model <weights_file> --host 0.0.0.0 --port <port>
-             --alias <manifest name>
-             [--mmproj <mmproj_file>] [args...]
-```
-
-`--alias` is llama.cpp's equivalent of the `--served-model-name` flag
-the other two engines take, and the shim's model-id contract depends on
-it: callers address `open-llms/<name>` and the engine 404s an unknown
-id. Recent llama.cpp builds also accept `--served-model-name`; confirm
-which the pinned build honours at implementation time and use one, not
-both.
-
-Flags a GB10 manifest will carry in `args`, none of them defaulted by
-the runtime because they are model decisions:
-
-| Flag | Why it is per-model |
-|---|---|
-| `-ngl` / `--n-gpu-layers` | Offload count. On unified memory this is normally all layers, but it is the memory-budget knob. |
-| `-c` / `--ctx-size` | KV cache size, the second term in the [[019-gb10-serving-target]] budget formula. |
-| `--model-draft` | Speculative decoding draft file, when the model ships one. |
-| `-fa` / `--flash-attn` | Not universally supported per architecture. |
-
-## Image
-
-`Dockerfile.llamacpp`, built `linux/arm64`, CUDA 13 base, compiled with
-`-DGGML_CUDA=ON` and the SM121 architecture pinned. Same two-stage shape
-as the existing Dockerfiles: `golang:1.27` builds the CGO-free
-`runtime` binary, the engine stage carries it, `ENTRYPOINT ["runtime",
-"serve"]`.
-
-The engine version is pinned as deliberately as the other two. llama.cpp
-has no stable release cadence, so the pin is a commit SHA with the
-reason recorded inline, matching how `Dockerfile.sglang` records its
-v0.5.16 floor.
-
-The image sets `OPENLLMS_ENGINE_HEALTH_PATH=/health`, which the shim
-already reads — `llama-server` exposes `/health`, not the `/ping` or
-`/health_generate` the incumbents use. No shim change.
+vLLM's build config lists compute capability 12.1, and SGLang publishes
+an arm64 tag. Neither fact proves the **published arm64 binary** ships
+SM121 kernels — the arm64 build could target only the server-class Grace
+parts. This is cheap to settle and expensive to assume, so it is AC1
+rather than a footnote.
 
 ## Acceptance criteria
 
-- **AC1** `runtime: llamacpp` validates with `args` and `weights_file`
-  set, and is rejected when `weights_file` is missing, does not end in
-  `.gguf`, or is set on a non-llamacpp runtime.
-- **AC2** `EngineCommand` renders the `llama-server` line above,
-  resolving `weights_file` and `mmproj_file` against the prepared
-  directory, with `--alias` set to the manifest name.
-- **AC3** `validateDSpark` no longer fires for non-sglang runtimes, and
-  a test pins that a llamacpp manifest with `--model-draft` validates.
-- **AC4** `Dockerfile.llamacpp` builds for `linux/arm64` and the image
-  serves a GGUF model end to end under `make e2e`, using the existing
-  in-process fakes rather than a GPU.
-- **AC5** `EngineImage()` returns `open-llms-runtime-llamacpp`, and
-  `deploycheck` passes for a gb10 LWS referencing it.
-- **AC6** The shim's OpenAI passthrough and `/anthropic/v1/messages`
-  translation are exercised against `llama-server`'s response shape,
-  including a streamed tool call, with no shim code change.
+- **AC1** The upstream arm64 images are confirmed to run on SM121 before
+  any GB10 model spec is dispatched: pull each image on a GB10 node,
+  start the engine on a small model, and record which engine and tag
+  worked. If neither does, this spec grows a source-build stage and
+  [[019-gb10-serving-target]]'s "no new engine" claim is revisited.
+- **AC2** `make images` and `make release` produce working `linux/arm64`
+  images for `sglang`, `vllm` and `mirror`; `sglang-k3` stays amd64.
+- **AC3** The `runtime` binary inside an arm64 image reports arm64, with
+  a test that would fail on the current `GOARCH`-unset build.
+- **AC4** s5cmd inside an arm64 image executes and completes a real
+  fetch — not merely present on the filesystem, which is what the
+  current bug looks like.
+- **AC5** An unknown `TARGETARCH` fails the build with a message naming
+  the architecture.
+- **AC6** DEPLOY.md documents that release images are multi-arch and
+  which one is not.
 
 ## Out of scope
 
-- llama.cpp on the x86_64 fleet. The incumbents are better there and
-  [[001-inference-engine-selection]]'s reasoning is unchanged.
-- GGUF conversion. Producing a GGUF from a vendor checkpoint is
-  [[022-model-qwen3.8-27b]]'s problem, not the runtime's.
-- `--model-draft` tuning. Adding the flag is here; choosing draft
-  lengths is per-model.
+- Adding a third engine. Both incumbents run here; see
+  [[019-gb10-serving-target]].
+- Bumping SGLang. Its pinned tag already publishes arm64, and
+  [[001-inference-engine-selection]] says bump deliberately.
+- arm64 CI runners. Building multi-arch under emulation is acceptable
+  for images this size; revisit if build time becomes the constraint.
