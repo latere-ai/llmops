@@ -1,5 +1,10 @@
 # Runtime image: vLLM engine + open-llms entrypoint (specs/003).
 # Engine version pinned per specs/001 — bump deliberately.
+#
+# v0.28.0 (2026-08-26) is the floor for the gb10 pool (specs/019): it
+# publishes linux/arm64 alongside amd64 and builds SM121 kernels, and it
+# postdates Qwen3.8-27B's release so the architecture is in it
+# (specs/022).
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -7,7 +12,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /out/runtime ./cmd/runtime
 
-FROM vllm/vllm-openai:v0.25.1
+FROM vllm/vllm-openai:v0.28.0
 COPY --from=build /out/runtime /usr/local/bin/runtime
 # Run:ai streamer enables load: s3-stream; s5cmd covers nvme-cache.
 RUN pip install --no-cache-dir "vllm[runai]" runai-model-streamer runai-model-streamer-s3 \
