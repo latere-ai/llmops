@@ -25,8 +25,8 @@ number order — the numbering is the implementation order.
 | 016 | [Fleet MoE lens fitting](016-bigmodel-lens-fitting.md) | draft | Cost-gated VJP fitting for 1T-class models; deferred |
 | 017 | [Model: DeepSeek-V4-Flash-0731](017-model-deepseek-v4-flash-0731.md) | draft | Answers 007 AC1; first speculative decoding (DSpark), 8x B200 |
 | 018 | [Model: Kimi-K3](018-model-kimi-k3.md) | draft | 2.8T multimodal; new B300 pool, K3-only image, MaaS license gate |
-| 019 | [GB10 serving target](019-gb10-serving-target.md) | draft | Single-GPU unified-memory node class; arm64 images, memory budget |
-| 020 | [arm64 runtime images](020-arm64-runtime-images.md) | draft | Multi-arch build: TARGETARCH, s5cmd, buildx; no new engine |
+| 019 | [GB10 serving target](019-gb10-serving-target.md) | draft | Single-GPU unified-memory lab box; memory budget, one model per host |
+| 020 | [Bare-metal deploy mode](020-bare-metal-packaging.md) | draft | Second deploy mode: installed binary + systemd, beside k8s |
 | 021 | [Local weight loading](021-local-weight-loading.md) | draft | `load: local`, verify in place, no S3 required |
 | 022 | [Model: Qwen3.8-27B](022-model-qwen3.8-27b.md) | draft | First dense/multimodal model; BF16, no quantization, 1x GB10 |
 | 023 | [Model: DeepSeek-V4-Flash-0731 (GB10)](023-model-deepseek-v4-flash-0731-gb10.md) | draft | Reduced-precision tier, separate endpoint; gated on a product call |
@@ -44,13 +44,23 @@ vendor. 018 (Kimi-K3) is the opposite: it needs a GPU pool, an engine
 image, and a license determination we do not have yet, so it is gated
 three ways and mirrored regardless.
 
-019 through 023 are the GB10 track — the first node class with one
-GPU, unified CPU/GPU memory and an arm64 host. **No new engine:** both
-pinned engine images already publish linux/arm64 and vLLM builds SM121,
-so 001's decision record stands. 019 states what the class costs, and the
-cost is memory behaviour, not software availability. 020 fixes our own
-image layer, which is the part that assumed amd64. 021 drops the S3
-requirement so a node can serve from its own disk.
+019 through 023 are the GB10 track — the first host with one GPU,
+unified CPU/GPU memory, an arm64 CPU, and no cluster around it.
+
+Two things it does **not** change. There is no new engine: both pinned
+engine images already publish linux/arm64 and vLLM builds SM121, so 001's
+decision record stands. And the Kubernetes deploy path is untouched —
+020 adds a **second** deploy mode beside it (installed binary under
+systemd, selected by a `deploy:` field on the manifest), because a
+one-GPU host has nothing for a scheduler to schedule. Both modes share
+the manifest schema, the frozen-weights provenance, the health contract
+and the Anthropic surface; they differ only in how the process is
+started, and `deploycheck` covers both.
+
+019 states what the hardware class costs, and the cost is memory
+behaviour rather than software availability. 021 drops the S3
+requirement so a host can serve from its own disk, which is the only
+sensible mode once there is no object store in the picture.
 
 022 and 023 are the two models, deliberately opposite: 022 runs
 undamaged at BF16 from the vendor checkpoint and uses two thirds of the
