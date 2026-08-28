@@ -80,6 +80,7 @@ llmops verify   <prefix>                            check a store against its ma
 llmops list     --bucket <root>                     what is mirrored there
 llmops serve    --manifest <manifest.yaml>          run a model
 llmops validate <models-dir | manifest.yaml>        check manifests and deploys
+llmops install  --manifest <manifest.yaml>          place the unit + manifest on a host
 llmops bench    --url <base> --model <id>           measure a live endpoint
 llmops version
 ```
@@ -110,6 +111,14 @@ the same process:
 ```sh
 llmops validate models/
 llmops serve --manifest /etc/llmops/model.yaml --cache-root ~/.models
+```
+
+On a bare-metal host, `install` places the manifest and a generated
+systemd unit, then systemd runs the same `serve` the container does:
+
+```sh
+sudo llmops install --manifest models/<name>.yaml --cache-root ~/.models
+sudo systemctl enable --now <name>.service
 ```
 
 Each model endpoint speaks OpenAI Chat natively (engine passthrough)
