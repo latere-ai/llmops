@@ -147,9 +147,7 @@ deferral rather than the intended shape.
   itself, performs no writes inside it beyond the lock file **at serve
   time**, and a test asserts no file is copied into `cacheRoot`. The
   `mirror` tool is the only writer of a local store, and it runs before
-  the endpoint starts — a derived artifact produced after the vendor
-  pull is covered by re-running `mirror freeze`, not by the serving
-  path. See [[022-model-qwen3.8-27b]] for the case that needs this.
+  the endpoint starts, never during it.
 - **AC5** A corrupt file in a local store fails the launch with a hash
   mismatch and does **not** attempt a fetch.
 - **AC6** `mirror freeze` writes a `_manifest.json` that `mirror verify`
