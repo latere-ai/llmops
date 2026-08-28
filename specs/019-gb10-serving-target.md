@@ -37,7 +37,16 @@ arm64 builds, so [[001-inference-engine-selection]] stands unamended.
 - **One GPU.** GB10 is a single Blackwell die fused with an arm64 Grace
   CPU. `--tp-size` is 1, and every multi-GPU sharding flag the fleet
   manifests carry is inapplicable.
-- **Compute capability SM121**, CUDA 13.0, driver floor r580.
+- **Compute capability sm_121**, CUDA 13.0, driver floor r580.
+- **Nothing is compiled for sm_121, and that is fine.** A measured
+  install of vLLM v0.28.0 reports
+  `arch list: ['sm_80','sm_90','sm_100','sm_110','sm_120']` — the device
+  is sm_121 and the highest compiled target is sm_120. It runs because
+  12.0 and 12.1 share a major compute-capability version, so the sm_120
+  cubins are binary-compatible. The correct claim is **"sm_120 kernels
+  run here"**, not "the engines target this GPU". If a future engine
+  build drops sm_120, this class breaks with no warning, so the arch
+  list is worth re-checking on every engine bump.
 - **128 GB LPDDR5X unified** between CPU and GPU. Around 119 GB is
   addressable in practice; plan against **~115 GB** with the OS and
   system services running, less if a desktop session is up.
@@ -47,8 +56,13 @@ arm64 builds, so [[001-inference-engine-selection]] stands unamended.
 - Local NVMe reads at roughly 5 GB/s, which sets the cold-start floor
   once weights are resident on disk.
 - Both engine images publish `linux/arm64` at the versions this repo
-  pins; vLLM has shipped aarch64 CUDA wheels since v0.13.0 and builds
-  SM121 kernels.
+  pins, and vLLM has shipped aarch64 CUDA wheels since v0.13.0.
+  `vllm==0.28.0` installs on this host from a wheel with no build step,
+  pulling `torch 2.13.0+cu132`.
+- **Startup is slow.** A 0.6B model took **325 s** from launch to
+  `/health` returning 200, most of it first-time weight download and
+  engine warmup. Readiness timeouts sized for the fleet will be too
+  tight here; a 27B model needs materially more.
 
 ## Decision: this class uses the bare-metal deploy mode
 
@@ -108,6 +122,13 @@ On a discrete-HBM node, `--mem-fraction-static 0.90` reserves 90% of
 *device* memory and the host keeps its own RAM. On GB10 there is one
 pool, so the same flag reserves 90% of everything the operating system
 also needs, and the box dies rather than degrades.
+
+**This is measured, not inferred.** vLLM launched with
+`--gpu-memory-utilization 0.30` on a 0.6B model held **37,651 MiB** —
+0.30 × 128 GB, to within a rounding error, for a model whose weights are
+about 1.2 GB. The fraction is applied to the whole unified pool and the
+engine fills it. At vLLM's 0.90 default this box would have handed the
+engine ~115 GB and left the operating system roughly 13 GB.
 
 ```
 usable  =  total_unified  −  os_and_services  −  engine_overhead
@@ -192,8 +213,17 @@ flowchart LR
   (`--max-model-len` for vLLM, `--context-length` for SGLang), so the
   `kv_cache` term is stated rather than inherited from an engine
   default.
-- **AC4** The 0.80 ceiling is confirmed by measurement on a real GB10
-  box before it is treated as final. It is derived, not observed.
+- **AC4** The 26 GB host reserve implied by the 0.80 ceiling holds under
+  a real workload, measured by [[022-model-qwen3.8-27b]] AC5. The
+  fraction's behaviour itself is already settled: measured 2026-08-28,
+  vLLM at `--gpu-memory-utilization 0.30` held 37,651 MiB on this class,
+  confirming the fraction applies to the full 128 GB unified pool and
+  that the engine fills it.
+- **AC4a** The engine's compiled arch list is re-checked on every engine
+  version bump, and the bump is rejected if `sm_120` is absent. This
+  class runs on binary compatibility rather than a targeted build, so
+  the failure would otherwise appear as a runtime crash after a routine
+  upgrade.
 - **AC5** `deploycheck` validates a bare-metal model against its systemd
   unit rather than an LWS manifest, and a test fails when the unit names
   a different manifest or binary than the model expects.
