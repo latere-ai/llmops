@@ -30,7 +30,7 @@ number order — the numbering is the implementation order.
 | 021 | [Local weight loading](021-local-weight-loading.md) | draft | `load: local`, verify in place, no S3 required |
 | 022 | [Model: Qwen3.8-27B](022-model-qwen3.8-27b.md) | draft | First dense/multimodal model; BF16, no quantization, 1x GB10 |
 | 023 | [Model: DeepSeek-V4-Flash-0731 (GB10)](023-model-deepseek-v4-flash-0731-gb10.md) | draft | Reduced-precision tier, separate endpoint; gated on a product call |
-| 024 | [One binary: the llmops command](024-single-cli.md) | draft | mirror + runtime + bench collapse into `llmops <subcommand>` |
+| 024 | [One binary: the llmops command](024-single-cli.md) | draft | Three binaries collapse into nine flat `llmops` subcommands |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest

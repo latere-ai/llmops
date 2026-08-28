@@ -25,20 +25,44 @@ dispatched_task_id: null
 ## Decision
 
 **Collapse `mirror`, `runtime` and `bench` into one `llmops` binary with
-subcommands.**
+a flat set of subcommands.**
 
 ```
-llmops serve     --manifest <path>            engine entrypoint / ExecStart
-llmops validate  models/                      manifest + deploy consistency
-llmops mirror    pull|push|freeze|verify|ls   weight registry
-llmops bench     --url … --model …            live endpoint benchmark
-llmops version                                what is installed on this host
+llmops pull      <repo>[@rev] --dir <dir>              fetch weights from HF
+llmops freeze    <repo>@<sha> --dir <dir>              write the store manifest in place
+llmops push      <repo>@<sha> --dir <dir> --bucket …   upload to an object store
+llmops verify    <prefix>                              check a store against its manifest
+llmops list      --bucket <root>                       what is mirrored there
+llmops serve     --manifest <path>                     engine entrypoint / ExecStart
+llmops validate  models/                               manifest + deploy consistency
+llmops bench     --url … --model …                     live endpoint benchmark
+llmops version                                         what is installed on this host
 ```
 
-`mirror` stays a group because it genuinely has five verbs against one
-store. The rest go flat: `llmops runtime serve` would preserve an
-accident of the current file layout rather than anything a caller cares
-about.
+### Why flat rather than a `mirror` group
+
+Grouping the five weight verbs under `mirror` was the obvious first
+shape and is the weaker one.
+
+`mirror` names an implementation — an S3 mirror — rather than anything
+the caller is trying to do. Worse, it is no longer even accurate:
+[[021-local-weight-loading]] added `freeze`, whose whole point is a host
+with **no** mirror. A group name that half its members contradict is not
+carrying meaning.
+
+`pull` is the most-typed command in the tool, and burying the common
+case one level down to keep the rare ones tidy is the wrong trade. Nine
+flat verbs is well inside what a CLI carries without grouping.
+
+**One name changes: `ls` becomes `list`.** As `mirror ls` the object was
+implied by the group; as a top-level verb `llmops ls` reads as a shell
+idiom and says nothing about what is listed. This is the only verb whose
+spelling moves, and it moves now because nothing depends on it yet.
+
+Grouping stays available if a genuinely separate object appears later —
+the jspace plane in [[014-jspace-readout-api]] is the plausible one. It
+would be a group because it acts on something other than weights, which
+is the test `mirror` failed.
 
 ## Why
 
@@ -91,8 +115,14 @@ needed its tests rewritten would not be a refactor.
 
 **Flags do not change.** `--manifest`, `--dir`, `--bucket`, `--url`,
 `--cache-root` and the rest keep their names and defaults. Only the
-program name and the path to reach a subcommand move, so every documented
-invocation survives a mechanical edit and no muscle memory is spent.
+program name and the route to a subcommand move, so every documented
+invocation survives a mechanical edit.
+
+The five weight verbs currently parse their flags inside a `mirror`
+dispatch that also owns the usage line and the `<repo>@<sha>` splitting.
+Flattening lifts that shared preamble to the top-level dispatch rather
+than duplicating it five times — `splitRepo` and `popPositional` are
+already free functions, so they move up unchanged.
 
 **`llmops version` is new.** It prints the build version and the commit.
 A binary that is copied onto hosts by hand needs a way to answer which
@@ -111,15 +141,17 @@ answered it.
 
 ## Acceptance criteria
 
-- **AC1** `llmops serve`, `validate`, `mirror <verb>`, `bench` and
-  `version` all work, with every flag keeping the name and default it has
-  today.
+- **AC1** All nine subcommands work flat, with every flag keeping the
+  name and default it has today.
 - **AC2** The tests that covered the three binaries pass unchanged in
-  their new location, save for the program name in usage assertions. A
-  test that needed rewriting means behaviour moved, which this spec does
-  not permit.
+  their new location, save for the program name and the dropped `mirror`
+  word in usage assertions. A test that needed rewriting means behaviour
+  moved, which this spec does not permit.
 - **AC3** `llmops` with no arguments, and with an unknown subcommand,
   exits non-zero and lists the available subcommands.
+- **AC3a** `llmops mirror <anything>` fails as an unknown subcommand
+  rather than silently doing nothing, so a stale invocation from a
+  script or a doc is loud.
 - **AC4** `make dist` produces exactly one binary per platform, and it is
   smaller than the three it replaces. The number goes in this spec.
 - **AC5** Every Dockerfile entrypoint, the Makefile, DEPLOY.md, README
