@@ -19,14 +19,19 @@ import (
 //
 //   - nvme-cache: sync the store prefix into cacheRoot/<repo>/<revision>,
 //     verifying every file against _manifest.json. Idempotent — verified
-//     files are not re-fetched; a same-node flock serializes concurrent
-//     pods (specs/003).
+//     files are not re-fetched; a flock serializes concurrent readers on
+//     one host (specs/003).
 //   - s3-stream: no staging; the engine streams directly from S3.
+//   - local: the weights are already on disk. Verify in place and hand
+//     the engine that directory — never copy it (specs/021).
 func PrepareWeights(m *manifest.Manifest, cacheRoot string, store mirror.Store, log io.Writer) (string, error) {
 	if m.Load == manifest.LoadS3Stream {
 		return m.S3Prefix, nil
 	}
 	dir := filepath.Join(cacheRoot, m.HFRepo, m.Revision)
+	if m.Load == manifest.LoadLocal {
+		return verifyInPlace(dir, log)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -46,6 +51,48 @@ func PrepareWeights(m *manifest.Manifest, cacheRoot string, store mirror.Store, 
 		}
 	}
 	fmt.Fprintf(log, "weights: %d files ready in %s\n", len(sm.Files), dir)
+	return dir, nil
+}
+
+// verifyInPlace checks an on-disk weight directory against its own
+// _manifest.json and returns it unchanged (specs/021).
+//
+// Unlike nvme-cache this never re-fetches on a mismatch. There is no
+// upstream behind a local store, so a bad hash is an operator problem,
+// and silently repairing it would defeat the freeze the checksums exist
+// to enforce. Copying is likewise avoided: the directory is already the
+// artifact, and duplicating it would double the disk cost on a host
+// that holds exactly one copy by design.
+func verifyInPlace(dir string, log io.Writer) (string, error) {
+	dir = filepath.Clean(dir)
+	if fi, err := os.Stat(dir); err != nil {
+		return "", fmt.Errorf("weights %s: %w", dir, err)
+	} else if !fi.IsDir() {
+		return "", fmt.Errorf("weights %s is not a directory", dir)
+	}
+
+	// Serialize against a mirror run writing this same directory.
+	unlock, err := lockDir(dir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
+	sm, err := mirror.ReadManifest(mirror.OpenStore(dir))
+	if err != nil {
+		return "", fmt.Errorf("local store %s: %w", dir, err)
+	}
+	for _, f := range sm.Files {
+		ok, err := fileMatches(filepath.Join(dir, f.Path), f)
+		if err != nil {
+			return "", fmt.Errorf("verify %s: %w", f.Path, err)
+		}
+		if !ok {
+			return "", fmt.Errorf("verify %s: does not match %s; re-run `mirror freeze` on %s",
+				f.Path, mirror.ManifestName, dir)
+		}
+	}
+	fmt.Fprintf(log, "weights: %d files verified in place in %s\n", len(sm.Files), dir)
 	return dir, nil
 }
 

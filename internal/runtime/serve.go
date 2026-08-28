@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,9 +20,13 @@ import (
 
 // Options configure Serve. Zero values get production defaults.
 type Options struct {
-	Port       int    // shim listen port (default 8000)
-	EnginePort int    // engine listen port (default 30000)
-	CacheRoot  string // NVMe cache root (default /cache)
+	Port       int // shim listen port (default 8000)
+	EnginePort int // engine listen port (default 30000)
+	// CacheRoot is where weights live on this host: the fetch target
+	// for nvme-cache, and the directory verified in place for
+	// load: local (specs/021). Default /cache suits the container
+	// images; a bare-metal host points it somewhere like ~/.models.
+	CacheRoot string
 	// EngineCmd overrides the engine command for tests; "{model}" and
 	// "{port}" are substituted. Production leaves it empty.
 	EngineCmd []string
@@ -31,10 +36,25 @@ type Options struct {
 func (o *Options) defaults() {
 	o.Port = cmp.Or(o.Port, 8000)
 	o.EnginePort = cmp.Or(o.EnginePort, 30000)
-	o.CacheRoot = cmp.Or(o.CacheRoot, "/cache")
+	o.CacheRoot = expandHome(cmp.Or(o.CacheRoot, "/cache"))
 	if o.Log == nil {
 		o.Log = os.Stderr
 	}
+}
+
+// expandHome resolves a leading ~/ in a path. systemd does not expand
+// tilde in ExecStart, so a unit written with --cache-root ~/.models
+// would otherwise create a directory literally named "~" beside the
+// working directory and silently look for weights in it.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
 }
 
 // EngineCommand renders the launch command for a manifest

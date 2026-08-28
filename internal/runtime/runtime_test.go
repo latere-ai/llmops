@@ -80,6 +80,96 @@ func TestPrepareWeightsS3Stream(t *testing.T) {
 	}
 }
 
+// seedLocal lays weights out the way a bare-metal host holds them:
+// <root>/<hf_repo>/<revision>/, frozen with its own _manifest.json.
+func seedLocal(t *testing.T, m *manifest.Manifest) (root, dir string) {
+	t.Helper()
+	root = t.TempDir()
+	dir = filepath.Join(root, m.HFRepo, m.Revision)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := seedStore(t, weights)
+	for name := range weights {
+		if err := src.Get(name, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := src.Get(mirror.ManifestName, filepath.Join(dir, mirror.ManifestName)); err != nil {
+		t.Fatal(err)
+	}
+	return root, dir
+}
+
+func TestPrepareWeightsLocalVerifiesInPlace(t *testing.T) {
+	m := testManifest("")
+	m.Load = manifest.LoadLocal
+	root, dir := seedLocal(t, m)
+
+	// A nil store proves nothing is fetched: any store call would panic.
+	got, err := PrepareWeights(m, root, nil, io.Discard)
+	if err != nil {
+		t.Fatalf("local prepare: %v", err)
+	}
+	if got != dir {
+		t.Fatalf("local prepare = %q, want %q", got, dir)
+	}
+
+	// Nothing is copied into the store beyond the lock file.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		switch e.Name() {
+		case "model.safetensors", "config.json", mirror.ManifestName, ".lock":
+		default:
+			t.Errorf("unexpected file written into the local store: %s", e.Name())
+		}
+	}
+}
+
+func TestPrepareWeightsLocalFailsOnCorruption(t *testing.T) {
+	// nvme-cache re-fetches a bad file. A local store has no upstream,
+	// so the launch must fail rather than silently serve bad weights.
+	m := testManifest("")
+	m.Load = manifest.LoadLocal
+	root, dir := seedLocal(t, m)
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("corrupted!!!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareWeights(m, root, nil, io.Discard); err == nil ||
+		!strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("corrupt local store accepted: %v", err)
+	}
+}
+
+func TestPrepareWeightsLocalMissingDir(t *testing.T) {
+	m := testManifest("")
+	m.Load = manifest.LoadLocal
+	if _, err := PrepareWeights(m, t.TempDir(), nil, io.Discard); err == nil {
+		t.Fatal("missing local weights accepted")
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	// systemd does not expand ~ in ExecStart, so the runtime must.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	if got := expandHome("~/.models"); got != filepath.Join(home, ".models") {
+		t.Errorf("expandHome(~/.models) = %q", got)
+	}
+	if got := expandHome("/cache"); got != "/cache" {
+		t.Errorf("absolute path rewritten to %q", got)
+	}
+	// A path merely starting with the character is not a home path.
+	if got := expandHome("~models/x"); got != "~models/x" {
+		t.Errorf("expandHome(~models/x) = %q", got)
+	}
+}
+
 type countingStore struct {
 	mirror.Store
 	gets int
