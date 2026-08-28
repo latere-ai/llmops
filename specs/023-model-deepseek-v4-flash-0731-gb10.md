@@ -74,41 +74,53 @@ closed unimplemented rather than left open.
 
 ## What fits
 
-[[019-gb10-serving-target]] AC2 caps the engine's memory fraction at
-0.80 of the unified pool, so the engine may address about **102 GB** —
-not the full 115 GB. That ceiling, not the raw pool, is the constraint:
+[[019-gb10-serving-target]] AC2 caps the engine's memory fraction at 0.80
+of the unified pool, so the engine may address about **102 GB**. That
+budget is not the weight budget: vLLM allocates KV blocks to fill
+whatever fraction it is given, and the real constraint is
 
-| Variant | Size | + draft | Under 102 GB |
+```
+weights  +  kv_cache  +  activations  <=  102 GB
+```
+
+**The KV term for this checkpoint is unmeasured.** Qwen's cache is
+computable from published head geometry ([[022-model-qwen3.8-27b]]);
+DeepSeek does not publish the equivalent for V4-Flash. So the table
+below is weights only, and every row must still pay for KV and
+activations out of the same 102 GB:
+
+| Variant | Weights | + draft | Left for KV + activations |
 |---|---|---|---|
-| UD-IQ1_S | 82.5 GB | 93.4 GB | yes |
-| UD-IQ2_XXS / UD-IQ2_M | 90.9 GB | 101.8 GB | yes, barely with draft |
-| UD-Q2_K_XL | 96.8 GB | 107.7 GB | alone only |
-| UD-IQ3_XXS | 104 GB | 114.9 GB | **no** |
-| UD-IQ3_S and above | ≥116 GB | — | no |
+| UD-IQ1_S | 82.5 GB | 93.4 GB | 19.5 / 8.6 GB |
+| UD-IQ1_M | 86.9 GB | 97.8 GB | 15.1 / 4.2 GB |
+| UD-IQ2_XXS / UD-IQ2_M | 90.9 GB | 101.8 GB | 11.1 / 0.2 GB |
+| UD-Q2_K_XL | 96.8 GB | 107.7 GB | 5.2 GB / over budget |
+| UD-IQ3_XXS | 104 GB | 114.9 GB | over budget |
+| UD-IQ3_S and above | ≥116 GB | — | over budget |
 
-The 0.80 ceiling rules out the 3-bit quants entirely. That ceiling is
-derived rather than measured ([[019-gb10-serving-target]] AC3a); if
-measurement raises it, UD-IQ3_XXS comes back into range and this table
-is recomputed.
+Two things follow, and both are uncomfortable:
+
+- **The 3-bit quants are out entirely**, so the QAT argument against
+  going below native 4-bit cannot be honoured at all on this node.
+- **The draft head is unaffordable.** Adding 10.9 GB leaves no usable
+  KV at any weight size worth serving, so speculative decoding is off
+  the table on this node unless the ceiling moves.
+
+The 0.80 ceiling is itself derived rather than measured
+([[019-gb10-serving-target]] AC3a). If measurement raises it, this table
+is recomputed and the larger quants may return.
 
 ## Quantization decision
 
-Two configurations fit today:
+**Deferred to measurement — this spec does not pin a quant.**
 
-```
-A   UD-Q2_K_XL   96.8 GB, no draft head   -> best weights that fit alone
-B   UD-IQ2_M     90.9 GB + 10.9 GB draft  -> speculative decoding, 101.8 GB
-```
-
-**Default is A**, on the same reasoning that rules out going lower than
-necessary: the draft head buys decode speed, not quality, and an
-endpoint whose only justification is "a bigger model" should spend its
-budget on weights. B is the choice if measured throughput on A is too
-low to be useful, which is a real possibility worth testing before
-settling.
-
-Neither configuration offers 1M context. `context_max` states what is
-left after the weights, rather than inheriting 017's value.
+On the numbers above the only candidates with plausible KV headroom are
+UD-IQ1_S and UD-IQ2_M, both at or below two bits, on a checkpoint whose
+training targeted four. That is a weaker position than the earlier draft
+of this spec claimed, and it is material to the gate above: the question
+is no longer "a bigger model at some quality cost" but "a bigger model
+at one to two bits". AC2 settles the KV number; the gate decision should
+be taken with that number in hand, not before.
 
 ## Engine and the open technical risk
 
@@ -123,10 +135,11 @@ architecture from GGUF, and its GGUF path is less exercised than
 llama.cpp's. This is the single thing most likely to sink the spec, so
 it is AC1.
 
-Speculative decoding, if configuration B is chosen, is vLLM's
+Speculative decoding is not planned here — the draft head does not fit
+the budget. If a measured ceiling later makes room, the path is vLLM's
 `--speculative-config '{"method":"dspark"}'` (≥0.27, and the image is
-now v0.28.0). Whether that path accepts a **separate GGUF draft file**
-rather than an in-checkpoint head is unverified and is part of AC1.
+now v0.28.0), and whether it accepts a **separate GGUF draft file**
+rather than an in-checkpoint head would need verifying first.
 
 ## Provenance
 
@@ -148,9 +161,10 @@ the registry, and the manifest is where it is recorded.
   If it does not, this spec either grows a llama.cpp engine — reopening
   what [[019-gb10-serving-target]] closed — or is abandoned. Settle this
   first; everything below is wasted if it fails.
-- **AC2** KV cache at the intended context is measured and recorded
-  here, and the A/B choice is resolved against it before the manifest is
-  pinned.
+- **AC2** KV cache per token is measured on a real load and recorded
+  here, and a quant is chosen against `weights + kv + activations <=
+  102 GB`. If no variant leaves usable context, that is a finding that
+  closes this spec, not a reason to raise the fraction.
 - **AC3** `models/deepseek-v4-flash-0731-q2.yaml` validates with
   `runtime: vllm`, `load: local`, `gpu: {type: gb10, count: 1, nodes: 1}`,
   a memory fraction within the 0.80 bound, and a `context_max`
