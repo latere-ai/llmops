@@ -30,7 +30,7 @@ vendor's own checkpoint.
 That is the reason to serve it. On this hardware class the alternative
 ([[023-model-deepseek-v4-flash-0731-gb10]]) is a much larger model
 compressed below the precision it was trained for. This one is
-undamaged and leaves 40 GB of the node idle. Those are different
+undamaged and leaves roughly 45 GB of the node free. Those are different
 products.
 
 It is also the first model that makes the registry's scope explicit:
@@ -57,13 +57,21 @@ If that is wrong, this spec is where to say so.
 **vLLM**, on the `v0.28.0` image this spec's work bumped
 `Dockerfile.vllm` to.
 
-SGLang is the fleet primary ([[001-inference-engine-selection]]) and is
-the default choice for a new model. It is not the choice here for one
-reason: the pinned SGLang tag is `v0.5.16`, which predates this model's
-2026-08-14 release, so its support for the Gated DeltaNet layers is
-unverified. vLLM `v0.28.0` was published 2026-08-26 and postdates the
-model. Taking the engine whose release is newer than the model is the
-cheaper bet than bumping SGLang for one model on one node.
+The checkpoint's `config.json` declares
+`architectures: ["Qwen3_5ForConditionalGeneration"]` with
+`model_type: qwen3_5` — note the config uses the 3.5 family name, not
+the 3.8 marketing name, which is the string any engine matches on.
+vLLM v0.28.0's model registry names that exact architecture in its
+**multimodal** table, backed by a real `qwen3_5.py` module. So vision is
+supported, not merely the text path (`Qwen3_5ForCausalLM` is a separate
+entry).
+
+SGLang is the fleet primary ([[001-inference-engine-selection]]) and the
+default for a new model. It is not the choice here because the pinned
+SGLang tag `v0.5.16` predates this model, so its coverage of these
+layers is unverified, and bumping SGLang for one model on one node is
+more disruption than using the second engine. If a later SGLang bump
+carries the architecture, moving this model is a manifest edit.
 
 If SGLang is bumped later for another reason and carries the
 architecture, moving this model is a manifest edit and nothing else.
@@ -90,9 +98,29 @@ the KV and would not reach native context on this node. The 3:1 hybrid
 is what makes 262K affordable, so **`--max-model-len 262144` is the
 configuration this spec claims**, not a ceiling to tune down.
 
-At `--gpu-memory-utilization 0.80` the engine may reserve up to ~102 GB,
-comfortably above the 71.2 GB needed, and within
-[[019-gb10-serving-target]] AC2's bound.
+### Choosing the memory fraction
+
+vLLM does not treat `--gpu-memory-utilization` as a ceiling it stays
+under: it profiles the model and then **allocates KV blocks to fill the
+budget**. So the fraction sets actual consumption, not a cap, and
+[[019-gb10-serving-target]] AC2's 0.80 bound would hand this model
+~102 GB and fill the node — leaving the host the same ~26 GB it would
+have had with a far larger model.
+
+This model is sized deliberately below the bound:
+
+```
+0.65 x 128 GB                        =  83.2 GB   engine budget
+  weights                            =  54.0 GB
+  activations + CUDA graphs (est.)   =   6.0 GB
+                                        ------
+  available for KV                   =  23.2 GB   (17.2 GB needed)
+node left to the host and page cache =  44.8 GB
+```
+
+0.65 covers the 262K KV requirement with margin and leaves roughly 45 GB
+of the node genuinely free. Raising it to 0.80 buys concurrency headroom
+at the cost of that margin; it is a deliberate change, not a default.
 
 ## Weights
 
@@ -121,7 +149,7 @@ gpu: { type: gb10, count: 1, nodes: 1 }
 context_max: 262144
 args:
   - --max-model-len=262144
-  - --gpu-memory-utilization=0.80
+  - --gpu-memory-utilization=0.65
 ```
 
 ## Acceptance criteria
@@ -139,8 +167,11 @@ args:
   rather than inferred from a clean start.
 - **AC4** A 262K-token request succeeds. The KV arithmetic above is the
   claim; this is the test of it.
-- **AC5** Measured resident memory at full context is within the
-  71.2 GB budget, or the budget is corrected here.
+- **AC5** Measured resident memory at full context sits within the
+  83.2 GB engine budget, with at least 17.2 GB actually allocated to KV
+  so the 262K claim in AC4 is real and not a short cache. If either
+  number is wrong, the arithmetic above is corrected here rather than
+  the fraction being raised silently.
 - **AC6** No tokens/sec target is set. There is no published figure for
   this model on this GPU, so [[010-observability-bench]]'s harness
   establishes the baseline rather than checking one.
