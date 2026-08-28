@@ -25,6 +25,11 @@ number order — the numbering is the implementation order.
 | 016 | [Fleet MoE lens fitting](016-bigmodel-lens-fitting.md) | draft | Cost-gated VJP fitting for 1T-class models; deferred |
 | 017 | [Model: DeepSeek-V4-Flash-0731](017-model-deepseek-v4-flash-0731.md) | draft | Answers 007 AC1; first speculative decoding (DSpark), 8x B200 |
 | 018 | [Model: Kimi-K3](018-model-kimi-k3.md) | draft | 2.8T multimodal; new B300 pool, K3-only image, MaaS license gate |
+| 019 | [GB10 serving target](019-gb10-serving-target.md) | draft | Single-GPU unified-memory node class; arm64 images, memory budget |
+| 020 | [llama.cpp runtime](020-llamacpp-runtime.md) | draft | Third engine: GGUF, aarch64/SM121; amends 001 |
+| 021 | [Local weight loading](021-local-weight-loading.md) | draft | `load: local`, verify in place, no S3 required |
+| 022 | [Model: Qwen3.8-27B](022-model-qwen3.8-27b.md) | draft | First dense/multimodal model; BF16, no quantization, 1x GB10 |
+| 023 | [Model: DeepSeek-V4-Flash-0731 (GB10)](023-model-deepseek-v4-flash-0731-gb10.md) | draft | Reduced-precision tier, separate endpoint; gated on a product call |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest
@@ -38,6 +43,16 @@ the weights, so Pro can stay blocked on procurement without blocking the
 vendor. 018 (Kimi-K3) is the opposite: it needs a GPU pool, an engine
 image, and a license determination we do not have yet, so it is gated
 three ways and mirrored regardless.
+
+019 through 023 are the GB10 track — the first node class with one
+GPU, unified CPU/GPU memory and an arm64 host. 019 states what the class
+costs; 020 adds llama.cpp because neither incumbent engine has an image
+for this architecture; 021 drops the S3 requirement so a node can serve
+from its own disk. 022 and 023 are the two models, and they are
+deliberately opposite: 022 runs undamaged at BF16 and uses two thirds of
+the node, 023 runs a much larger checkpoint below its native precision
+and fills it. 023 is gated on whether a reduced-precision tier belongs in
+the registry at all — 022 does not depend on that answer.
 
 The jspace monitoring plane (012→015) proves end to end on the local
 Qwen3-0.6B stack before any fleet GPU is spent; 016 gates fleet-model
