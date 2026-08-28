@@ -163,6 +163,84 @@ func TestPullPushVerifyE2E(t *testing.T) {
 	}
 }
 
+func TestPullFreezeVerifyE2E(t *testing.T) {
+	// The bare-metal path: pull into the directory that will be served,
+	// freeze it there, and never involve a bucket (specs/021).
+	m, _ := newMirror(t, testFiles)
+	dir := t.TempDir()
+
+	if _, _, err := m.Pull(context.Background(), "acme/tiny", "", dir); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := m.Freeze("acme/tiny", testSHA, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != testSHA {
+		t.Fatalf("freeze sha = %s, want %s", sha, testSHA)
+	}
+
+	// The frozen directory is itself a valid store.
+	store := OpenStore(dir)
+	if err := m.Verify(store); err != nil {
+		t.Fatalf("frozen dir does not verify: %v", err)
+	}
+	sm, err := ReadManifest(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sm.HFRepo != "acme/tiny" || sm.Revision != testSHA || sm.TotalBytes == 0 {
+		t.Fatalf("manifest %+v", sm)
+	}
+	if len(sm.Files) != len(testFiles) {
+		t.Fatalf("manifest lists %d files, want %d", len(sm.Files), len(testFiles))
+	}
+
+	// Freeze copies nothing: the weights plus the manifest, no more.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(testFiles)+1 {
+		t.Fatalf("freeze left %d entries, want %d", len(entries), len(testFiles)+1)
+	}
+}
+
+func TestFreezeRejectsIncompleteDir(t *testing.T) {
+	// A directory missing a file the HF tree advertises must not get a
+	// manifest: writing one would certify weights that are not there.
+	m, _ := newMirror(t, testFiles)
+	dir := t.TempDir()
+	if _, _, err := m.Pull(context.Background(), "acme/tiny", "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "model-00002-of-00002.safetensors")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Freeze("acme/tiny", testSHA, dir); err == nil {
+		t.Fatal("freeze accepted an incomplete directory")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ManifestName)); !os.IsNotExist(err) {
+		t.Fatal("freeze wrote a manifest for an incomplete directory")
+	}
+}
+
+func TestFreezeRejectsCorruptFile(t *testing.T) {
+	m, _ := newMirror(t, testFiles)
+	dir := t.TempDir()
+	if _, _, err := m.Pull(context.Background(), "acme/tiny", "", dir); err != nil {
+		t.Fatal(err)
+	}
+	// Same size, different content: the hash is the identity.
+	p := filepath.Join(dir, "model-00001-of-00002.safetensors")
+	if err := os.WriteFile(p, []byte("weights-part-ONE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Freeze("acme/tiny", testSHA, dir); err == nil {
+		t.Fatal("freeze accepted a corrupt file")
+	}
+}
+
 func TestPushIdempotent(t *testing.T) {
 	m, _ := newMirror(t, testFiles)
 	dir := t.TempDir()

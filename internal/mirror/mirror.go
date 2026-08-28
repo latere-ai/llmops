@@ -143,6 +143,48 @@ func (m *Mirror) Push(repo, sha, dir string, files []FileEntry, store Store) err
 			return err
 		}
 	}
+	return writeManifest(repo, sha, total, files, store)
+}
+
+// Freeze writes _manifest.json into an already-populated directory,
+// making it a store that can be served directly (specs/021).
+//
+// It is Push without the upload: the same HF tree verification and the
+// same provenance artifact, for a directory that is already where the
+// weights will be read from. A bare-metal host has no bucket to push
+// to, but still needs the pinned revision and per-file checksums that
+// make the freeze guarantee mean something.
+func (m *Mirror) Freeze(repo, revision, dir string) (string, error) {
+	sha, err := m.HF.Resolve(repo, revision)
+	if err != nil {
+		return "", err
+	}
+	tree, err := m.HF.Tree(repo, sha)
+	if err != nil {
+		return "", err
+	}
+	if err := CheckPolicy(tree); err != nil {
+		return "", err
+	}
+	files, err := verifyLocal(dir, tree)
+	if err != nil {
+		return "", fmt.Errorf("verify %s: %w", dir, err)
+	}
+	var total int64
+	for _, f := range files {
+		total += f.Size
+	}
+	if err := writeManifest(repo, sha, total, files, &LocalStore{Root: dir}); err != nil {
+		return "", err
+	}
+	m.logf("freeze: %d files, %d bytes, %s written to %s", len(files), total, ManifestName, dir)
+	return sha, nil
+}
+
+// writeManifest writes _manifest.json into a store. It is written last
+// so a partial mirror stays detectable: the manifest's presence is what
+// marks the store complete.
+func writeManifest(repo, sha string, total int64, files []FileEntry, store Store) error {
 	sm := StoreManifest{
 		HFRepo:     repo,
 		Revision:   sha,
