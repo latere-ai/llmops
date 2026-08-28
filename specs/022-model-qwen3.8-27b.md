@@ -146,7 +146,6 @@ license: apache-2.0
 runtime: vllm
 deploy: bare-metal
 load: local
-local_path: /var/lib/openllms/Qwen/Qwen3.8-27B/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/
 gpu: { type: gb10, count: 1, nodes: 1 }
 context_max: 262144
 args:
@@ -154,9 +153,15 @@ args:
   - --gpu-memory-utilization=0.65
 ```
 
-This is the first manifest in the registry with `deploy: bare-metal`, so
-it is also the first exercise of [[020-bare-metal-packaging]]'s unit
-file and install path.
+The manifest names no weights directory: `load: local` resolves to
+`<weights-root>/Qwen/Qwen3.8-27B/<revision>`, and the host supplies the
+root ([[021-local-weight-loading]]). On a lab box that is
+`--cache-root ~/.models`, set once in the unit file and shared by every
+model on that machine.
+
+This is also the first manifest in the registry with
+`deploy: bare-metal`, so it is the first exercise of
+[[020-bare-metal-packaging]]'s unit file and install path.
 
 ## Acceptance criteria
 

@@ -62,26 +62,49 @@ LoadLocal = "local"
 
 ```yaml
 load: local
-local_path: /var/lib/openllms/Qwen/Qwen3.8-27B/1d4bf0f2.../
+# no s3_prefix, and no path either
 ```
+
+### The manifest names no directory
+
+The weights sit at the layout `nvme-cache` already uses:
+
+```
+<weights-root>/<hf_repo>/<revision>/
+```
+
+with the **root supplied by the host** at serve time (`--cache-root`,
+default `/cache` for the container images, something like `~/.models` on
+a bare-metal host). The manifest carries the repo and revision, which
+are properties of the model; the root is a property of the machine.
+
+Putting an absolute path in the manifest was the obvious first design
+and is wrong: `models/*.yaml` is checked into a public repo, so a path
+like `/home/<user>/dev/open-llms/weights/...` would commit one machine's
+directory layout — and one person's username — into the shared source of
+truth, and would need editing on every host. Splitting it this way keeps
+one manifest describing the model everywhere, while the operator still
+chooses exactly where weights live.
+
+`--cache-root` expands a leading `~/`. systemd does not expand tilde in
+`ExecStart`, so a unit written with `--cache-root ~/.models` would
+otherwise create a directory literally named `~`.
 
 ### Validation
 
-- `local_path` is required when `load: local`, must be absolute, and
-  must be absent otherwise.
-- `s3_prefix` becomes optional **only** when `load: local`. It stays
-  required and stays shape-checked for `nvme-cache` and `s3-stream`. A
-  manifest that sets both is rejected: two sources of truth for one set
-  of weights is the failure this schema exists to prevent.
-- `local_path` must end in `<hf_repo>/<revision>/`, the same rule
-  `validateS3Prefix` enforces. The path is provenance, not a location,
-  so it carries the same pin.
+- `s3_prefix` must be **empty** when `load: local`. Two sources for one
+  set of weights is the ambiguity this schema exists to prevent, so it
+  is an error rather than a precedence rule.
+- `s3_prefix` stays required and stays shape-checked for `nvme-cache`
+  and `s3-stream`. Adding a third mode must not weaken the two that
+  existed.
 
 ### PrepareWeights
 
 ```
-load: local  →  verify local_path in place against _manifest.json,
-                return local_path. Never copy, never fetch.
+load: local  →  verify <weights-root>/<hf_repo>/<revision> in place
+                against _manifest.json, return it.
+                Never copy, never fetch.
 ```
 
 A hash mismatch **fails the launch**. It does not re-fetch, because
@@ -103,7 +126,7 @@ get that provenance artifact into a directory that will be served
 directly. Add:
 
 ```sh
-go run ./cmd/mirror freeze <repo>@<sha> --dir /var/lib/openllms/<repo>/<sha>/
+go run ./cmd/mirror freeze <repo>@<sha> --dir <weights-root>/<repo>/<sha>/
 ```
 
 It runs the same tree/verify path as `push` and writes `_manifest.json`
@@ -138,18 +161,20 @@ deferral rather than the intended shape.
 
 ## Acceptance criteria
 
-- **AC1** `load: local` with a valid absolute `local_path` ending in
-  `<hf_repo>/<revision>/` validates; missing, relative, or
-  wrong-suffix paths are rejected with an error naming the field.
-- **AC2** Setting `local_path` on `nvme-cache`/`s3-stream`, or setting
-  both `local_path` and `s3_prefix`, is rejected.
-- **AC3** `s3_prefix` remains required and shape-checked for the two S3
+- **AC1** `load: local` validates with no weight source named in the
+  manifest, and resolves to `<weights-root>/<hf_repo>/<revision>`.
+- **AC2** `load: local` with a non-empty `s3_prefix` is rejected, naming
+  the conflict.
+- **AC3** `s3_prefix` remains required and shape-checked for both S3
   modes — an existing manifest with it removed still fails.
-- **AC4** `PrepareWeights` under `load: local` returns `local_path`
-  itself, performs no writes inside it beyond the lock file **at serve
-  time**, and a test asserts no file is copied into `cacheRoot`. The
-  `mirror` tool is the only writer of a local store, and it runs before
-  the endpoint starts, never during it.
+- **AC4** `PrepareWeights` under `load: local` returns the resolved
+  directory, performs no writes inside it beyond the lock file **at
+  serve time**, and a test asserts no file is copied. The `mirror` tool
+  is the only writer of a local store, and it runs before the endpoint
+  starts, never during it.
+- **AC4a** `--cache-root ~/.models` resolves against the user's home
+  rather than creating a directory named `~`, since systemd does not
+  expand tilde in `ExecStart`.
 - **AC5** A corrupt file in a local store fails the launch with a hash
   mismatch and does **not** attempt a fetch.
 - **AC6** `mirror freeze` writes a `_manifest.json` that `mirror verify`
