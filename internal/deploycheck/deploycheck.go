@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -19,8 +20,18 @@ import (
 // DNSName converts a model name to its k8s resource name.
 func DNSName(model string) string { return strings.ReplaceAll(model, ".", "-") }
 
-// Validate checks every model manifest has a deploy/<name>/lws.yaml
-// consistent with it.
+// Binary is the installed command a bare-metal unit must run
+// (specs/024). A unit naming anything else would start something that
+// is not this repo's runtime, or nothing at all.
+const Binary = "llmops"
+
+// Validate checks every model manifest against the deploy artifact it
+// owns: a LeaderWorkerSet for deploy: k8s, a systemd unit for
+// deploy: bare-metal (specs/020).
+//
+// The check dispatches on the model's mode so neither mode is validated
+// against the other's artifact, and a model is required to own exactly
+// one — two would be two sources of truth for how it starts.
 func Validate(modelsDir, deployDir string) error {
 	models, err := manifest.LoadDir(modelsDir)
 	if err != nil {
@@ -30,10 +41,82 @@ func Validate(modelsDir, deployDir string) error {
 		return fmt.Errorf("no model manifests in %s", modelsDir)
 	}
 	for _, m := range models {
-		path := filepath.Join(deployDir, m.Name, "lws.yaml")
-		if err := validateOne(m, path); err != nil {
+		path := filepath.Join(deployDir, m.DeployArtifact())
+		if err := validateArtifact(m, path); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
+		if err := checkNoStrayArtifact(m, deployDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateArtifact(m *manifest.Manifest, path string) error {
+	if m.DeployMode() == manifest.DeployBareMetal {
+		return validateUnit(m, path)
+	}
+	return validateOne(m, path)
+}
+
+// checkNoStrayArtifact rejects a model that carries both a LWS manifest
+// and a unit file. Whichever one the mode does not select would go
+// unchecked, and an unchecked deploy artifact is how a manifest and a
+// running process drift apart without CI noticing.
+func checkNoStrayArtifact(m *manifest.Manifest, deployDir string) error {
+	other := filepath.Join(deployDir, m.Name, "lws.yaml")
+	if m.DeployMode() == manifest.DeployK8s {
+		other = filepath.Join(deployDir, m.Name, m.Name+".service")
+	}
+	if _, err := os.Stat(other); err == nil {
+		return fmt.Errorf("%s: %s also has %s; a model owns one deploy artifact, not both",
+			m.Name, m.DeployMode(), filepath.Base(other))
+	}
+	return nil
+}
+
+// validateUnit checks a systemd unit starts this model, with this
+// binary, from this manifest (specs/020 AC5, specs/024 AC7).
+func validateUnit(m *manifest.Manifest, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var exec string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart="); ok {
+			exec = rest
+			break
+		}
+	}
+	if exec == "" {
+		return errors.New("no ExecStart= line")
+	}
+	fields := strings.Fields(exec)
+	if len(fields) == 0 {
+		return errors.New("empty ExecStart")
+	}
+	if got := filepath.Base(fields[0]); got != Binary {
+		return fmt.Errorf("ExecStart runs %q, want %q", got, Binary)
+	}
+	if !slices.Contains(fields[1:], "serve") {
+		return fmt.Errorf("ExecStart does not run the serve subcommand: %q", exec)
+	}
+	wantManifest := m.Name + ".yaml"
+	var gotManifest string
+	for i, f := range fields {
+		if f == "--manifest" && i+1 < len(fields) {
+			gotManifest = fields[i+1]
+		}
+		if rest, ok := strings.CutPrefix(f, "--manifest="); ok {
+			gotManifest = rest
+		}
+	}
+	if gotManifest == "" {
+		return errors.New("ExecStart has no --manifest")
+	}
+	if filepath.Base(gotManifest) != wantManifest {
+		return fmt.Errorf("ExecStart serves manifest %q, want %q", gotManifest, wantManifest)
 	}
 	return nil
 }

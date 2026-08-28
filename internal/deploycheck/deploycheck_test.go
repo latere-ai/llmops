@@ -50,6 +50,103 @@ func writeLWS(t *testing.T, deployDir, model, body string) {
 	}
 }
 
+// writeBareMetalModel writes a gb10 manifest in the bare-metal mode,
+// carrying the flags specs/019 requires on that class.
+func writeBareMetalModel(t *testing.T, dir, name string) {
+	t.Helper()
+	data := `name: ` + name + `
+hf_repo: acme/tiny
+revision: ` + sha + `
+format: bf16
+license: mit
+runtime: vllm
+deploy: bare-metal
+load: local
+gpu: {type: gb10, count: 1, nodes: 1}
+context_max: 4096
+args: ["--max-model-len=4096", "--gpu-memory-utilization=0.65"]
+`
+	if err := os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeUnit(t *testing.T, deployDir, model, execStart string) {
+	t.Helper()
+	dir := filepath.Join(deployDir, model)
+	os.MkdirAll(dir, 0o755)
+	body := "[Unit]\nDescription=llmops " + model + "\n\n[Service]\nExecStart=" + execStart +
+		"\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n"
+	if err := os.WriteFile(filepath.Join(dir, model+".service"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateBareMetalUnit(t *testing.T) {
+	models, deploy := t.TempDir(), t.TempDir()
+	writeBareMetalModel(t, models, "qwen")
+	writeUnit(t, deploy, "qwen", "/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml")
+	if err := Validate(models, deploy); err != nil {
+		t.Fatalf("valid bare-metal unit rejected: %v", err)
+	}
+	// systemd units are written both ways; neither is a failure.
+	writeUnit(t, deploy, "qwen", "/usr/local/bin/llmops serve --manifest=/etc/llmops/qwen.yaml")
+	if err := Validate(models, deploy); err != nil {
+		t.Fatalf("--manifest= form rejected: %v", err)
+	}
+}
+
+func TestValidateBareMetalUnitFailures(t *testing.T) {
+	cases := []struct {
+		name string
+		exec string
+		want string
+	}{
+		// The specs/024 rename is exactly this failure: a unit left
+		// naming the old binary starts nothing, and does so at boot on
+		// the host rather than in CI.
+		{"stale binary name", "/usr/local/bin/runtime serve --manifest /etc/llmops/qwen.yaml", `want "llmops"`},
+		{"no serve verb", "/usr/local/bin/llmops --manifest /etc/llmops/qwen.yaml", "serve subcommand"},
+		{"wrong manifest", "/usr/local/bin/llmops serve --manifest /etc/llmops/other.yaml", `want "qwen.yaml"`},
+		{"no manifest flag", "/usr/local/bin/llmops serve --cache-root /x", "no --manifest"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			models, deploy := t.TempDir(), t.TempDir()
+			writeBareMetalModel(t, models, "qwen")
+			writeUnit(t, deploy, "qwen", tc.exec)
+			err := Validate(models, deploy)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsBothArtifacts(t *testing.T) {
+	// Whichever artifact the mode does not select goes unchecked, and an
+	// unchecked deploy file is how config drifts from what runs.
+	models, deploy := t.TempDir(), t.TempDir()
+	writeBareMetalModel(t, models, "qwen")
+	writeUnit(t, deploy, "qwen", "/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml")
+	writeLWS(t, deploy, "qwen", goodLWS("qwen", "ghcr.io/x/llmops-runtime-vllm:v1", "1"))
+	err := Validate(models, deploy)
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("model with two deploy artifacts accepted: %v", err)
+	}
+}
+
+func TestValidateBareMetalMissingUnit(t *testing.T) {
+	models, deploy := t.TempDir(), t.TempDir()
+	writeBareMetalModel(t, models, "qwen")
+	if err := Validate(models, deploy); err == nil {
+		t.Fatal("bare-metal model with no unit file accepted")
+	}
+}
+
 func goodLWS(name, image, gpus string) string {
 	return `apiVersion: leaderworkerset.x-k8s.io/v1
 kind: LeaderWorkerSet
