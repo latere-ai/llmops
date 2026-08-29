@@ -34,6 +34,7 @@ number order — the numbering is the implementation order.
 | 024 | [One binary: the llmops command](024-single-cli.md) | draft | Three binaries collapse into nine flat `llmops` subcommands |
 | 025 | [Dialect surfaces](025-dialect-surfaces.md) | draft | Serve all three caller dialects; engine dialect declared, loss reported |
 | 026 | [Harness integration](026-harness-integration.md) | draft | `ps`, `endpoint --harness`, `run` — the last mile to coding against it |
+| 027 | [Qwen fast path](027-qwen-fast-path.md) | draft | NVFP4 + speculative decoding: 3 tok/s measured, ~50 available |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest
@@ -93,6 +94,13 @@ config format all have to be assembled by hand, and every one of them is
 derivable. It depends on 025 rather than working around it: once every model serves
 all three surfaces on one port, `endpoint` stops being dialect routing
 and becomes a table of variable names and config formats.
+
+027 puts a price on 022's central argument. Undamaged BF16 weights
+measure 3.0 tok/s; the same model on the same box has been measured at
+51.5 with 4-bit weights and a draft head. The quality case for BF16 still
+stands — it now costs a measured 17x rather than the 4x estimated, which
+is high enough that the answer may change. Both endpoints stay, named by
+precision, for the reason 023 gives.
 
 The jspace monitoring plane (012→015) proves end to end on the local
 Qwen3-0.6B stack before any fleet GPU is spent; 016 gates fleet-model

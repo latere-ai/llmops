@@ -71,6 +71,40 @@ This is why active parameters, not total, set the speed. It is also why
 quantization buys throughput proportionally: half the bytes, twice the
 tokens.
 
+### Speculative decoding breaks this formula
+
+The formula above assumes **one token per forward pass**, which is the
+only case where "bytes read per token" is a fixed cost. Speculative
+decoding reads the weights once and verifies several drafted tokens
+against that read, so the honest form is:
+
+```
+tok/s  ≈  efficiency × bandwidth / bytes_read_per_token × accepted_per_step
+```
+
+The multiplier is not a constant — it is how often the draft model
+guesses right, which depends on what is being generated. Published
+numbers for Qwen3.8-27B on a GB10, same model and precision throughout:
+
+| Content | tok/s |
+|---|---|
+| Code | 51.5 |
+| Long essay | 18.3 |
+
+**A 2.8x spread on identical hardware.** Memory bandwidth is indifferent
+to what is being written; draft acceptance is not, because code is far
+more predictable than prose. If you see a throughput number quoted
+without saying what was generated, it is probably the code figure.
+
+Two consequences for planning:
+
+- A bandwidth ceiling is a floor for *speculative* serving, not a cap.
+  Our own 27B measured 3.0 tok/s at BF16 with no speculation, against a
+  4.3 ceiling — but 51.5 with 4-bit weights and a draft head, which is
+  ten times that ceiling and not a contradiction.
+- Quantization and speculation **multiply**. 4x fewer bytes and ~4x
+  accepted tokens is the 17x between those two figures.
+
 ### Measuring bandwidth, and a trap
 
 Do not use a reduction to measure bandwidth. `tensor.sum()` on this box
@@ -226,6 +260,11 @@ At the same ~70% efficiency:
 INT8 is the interesting middle: half the bytes for a quality cost far
 below 4-bit's, on a model with no quantization-aware training to lean
 on.
+
+Add a draft head on top and the 4-bit row becomes ~50 tok/s on code,
+which is the configuration in `specs/027`. The two levers are
+independent and multiply, so treating quantization as the only one
+undersells the ceiling by roughly the acceptance rate.
 
 ## 6. Operating a model once it is up
 
