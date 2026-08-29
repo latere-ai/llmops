@@ -5,10 +5,13 @@ deployed and measured, and why each choice was made that way.
 Start with [000-architecture](000-architecture.md) (umbrella), then read in
 number order — the numbering is the implementation order.
 
-**Status is what the code says, not what the spec hoped.** `complete`
-means every acceptance criterion holds; `built` means it is in use with a
-named criterion still open, listed under the table; `draft` means nothing
-of it is in the product.
+**Status is what the code says, not what the spec hoped.** Three values,
+and only three:
+
+- `draft` — nothing of it is in the product.
+- `partial` — in the product, with a named criterion still open. Those
+  are listed directly under the table.
+- `complete` — in the product, every acceptance criterion holds.
 
 | # | Spec | Status | Scope |
 |---|---|---|---|
@@ -23,7 +26,7 @@ of it is in the product.
 | 008 | [Kubernetes GPU serving](008-k8s-serving.md) | draft | LWS deploys, NVMe prefetch cache, node prereqs |
 | 009 | [Lux integration](009-lux-integration.md) | draft | Models as Lux providers, cost tracking |
 | 010 | [Observability & bench](010-observability-bench.md) | draft | Metrics/dashboards, benchmark harness, router comparison |
-| 011 | [Local full-stack e2e](011-local-e2e.md) | draft | Small model + MinIO + local engine; zero-cost pipeline proof |
+| 011 | [Local full-stack e2e](011-local-e2e.md) | complete | Small model + MinIO + local engine; zero-cost pipeline proof |
 | 012 | [Lens fitting pipeline](012-lens-fitting-pipeline.md) | draft | Jacobian lens artifacts per model+revision; first Python code |
 | 013 | [In-engine jspace capture](013-inengine-capture.md) | draft | vLLM plugin + SGLang patch; on-GPU lens apply, all decode tokens |
 | 014 | [jspace readout API](014-jspace-readout-api.md) | draft | Shim SSE stream + Prometheus aggregates from capture frames |
@@ -31,14 +34,14 @@ of it is in the product.
 | 016 | [Fleet MoE lens fitting](016-bigmodel-lens-fitting.md) | draft | Cost-gated VJP fitting for 1T-class models; deferred |
 | 017 | [Model: DeepSeek-V4-Flash-0731](017-model-deepseek-v4-flash-0731.md) | draft | Answers 007 AC1; first speculative decoding (DSpark), 8x B200 |
 | 018 | [Model: Kimi-K3](018-model-kimi-k3.md) | draft | 2.8T multimodal; new B300 pool, K3-only image, MaaS license gate |
-| 019 | [GB10 serving target](019-gb10-serving-target.md) | **built** | Single-GPU unified-memory lab box; memory budget, one model per host |
-| 020 | [Bare-metal deploy mode](020-bare-metal-packaging.md) | **built** | Installed binary + systemd beside k8s; `llmops install` |
-| 021 | [Local weight loading](021-local-weight-loading.md) | **complete** | `load: local`, verify in place, no S3 required |
-| 022 | [Model: Qwen3.8-27B](022-model-qwen3.8-27b.md) | **built, serving** | BF16 multimodal on 1x GB10; measured 3.0 tok/s |
+| 019 | [GB10 serving target](019-gb10-serving-target.md) | partial | Single-GPU unified-memory lab box; memory budget, one model per host |
+| 020 | [Bare-metal deploy mode](020-bare-metal-packaging.md) | partial | Installed binary + systemd beside k8s; `llmops install` |
+| 021 | [Local weight loading](021-local-weight-loading.md) | complete | `load: local`, verify in place, no S3 required |
+| 022 | [Model: Qwen3.8-27B](022-model-qwen3.8-27b.md) | partial | First dense/multimodal model; BF16 on 1x GB10, measured 3.0 tok/s |
 | 023 | [Model: DeepSeek-V4-Flash-0731 (GB10)](023-model-deepseek-v4-flash-0731-gb10.md) | draft | Reduced-precision tier, separate endpoint; gated on a product call |
-| 024 | [One binary: the llmops command](024-single-cli.md) | **complete** | Three binaries collapse into ten flat `llmops` subcommands |
-| 025 | [Dialect surfaces](025-dialect-surfaces.md) | **complete** | All three caller dialects; engine dialect declared, loss reported |
-| 026 | [Harness integration](026-harness-integration.md) | **complete** | `ps`, `endpoint --harness`, `run` — the last mile to coding against it |
+| 024 | [One binary: the llmops command](024-single-cli.md) | complete | Three binaries collapse into ten flat `llmops` subcommands |
+| 025 | [Dialect surfaces](025-dialect-surfaces.md) | complete | All three caller dialects; engine dialect declared, loss reported |
+| 026 | [Harness integration](026-harness-integration.md) | complete | `ps`, `endpoint --harness`, `run` — the last mile to coding against it |
 | 027 | [Qwen fast path](027-qwen-fast-path.md) | draft | NVFP4 + speculative decoding: 3 tok/s measured, ~50 available |
 
 ### What is built, and what each built spec still owes

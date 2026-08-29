@@ -43,7 +43,7 @@ producing the numbers the per-model specs and Lux cost entries require.
 
 1. Dashboard template renders for any model manifest; live for the first
    deployed model.
-2. `bench run --model kimi-k2.7-code --preset agentic` produces a stable
+2. `llmops bench --model kimi-k2.7-code` produces a stable
    JSON report; two consecutive runs within documented variance (test).
 3. Numbers flow into: per-model spec Outcome sections, Lux cost config
    ([[009-lux-integration]]).

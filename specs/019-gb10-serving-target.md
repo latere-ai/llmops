@@ -1,6 +1,6 @@
 ---
 title: "GB10 serving target (single GPU, unified memory, bare metal)"
-status: built
+status: partial
 depends_on:
   - 003-serving-runtime.md
 affects:

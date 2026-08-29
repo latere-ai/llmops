@@ -99,7 +99,7 @@ args:                           # engine-specific flags, verbatim
   - --reasoning-parser=kimi_k2
 ```
 
-Schema validated by a `runtime validate` subcommand (test-covered); CI
+Schema validated by a `llmops validate` subcommand (test-covered); CI
 validates all manifests.
 
 ## Custom runtimes (`runtime: custom`)

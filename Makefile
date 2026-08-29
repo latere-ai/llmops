@@ -40,9 +40,14 @@ test-race:
 	CGO_ENABLED=1 $(GO) test -race ./...
 
 # Validate all model manifests + deploy consistency (also run in `test`
-# via internal/deploycheck).
+# via internal/deploycheck), then the spec tree that describes them.
+#
+# The spec lint exists because the index drifted: every row read `draft`
+# while five specs were built and one was serving. It had been
+# hand-edited a dozen times that day.
 validate:
 	$(GO) run ./cmd/llmops validate models/
+	$(GO) test ./internal/speclint/
 
 # fmt formats all Go sources in place.
 fmt:

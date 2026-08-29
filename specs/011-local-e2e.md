@@ -63,7 +63,7 @@ engine health path becomes overridable via `LLMOPS_ENGINE_HEALTH_PATH`
 
 1. `make e2e-local` runs the chain above green on a clean machine with
    Docker + uv (script bootstraps the venv), no cloud credentials.
-2. The manifest used is validated by the same `runtime validate` as
+2. The manifest used is validated by the same `llmops validate` as
    production manifests (local engine substitution happens via env, not
    schema loosening).
 3. Total cost: $0; runtime a few minutes after the one-time model

@@ -1,6 +1,6 @@
 ---
 title: "Bare-metal deploy mode (installed binary + systemd)"
-status: built
+status: partial
 depends_on:
   - 003-serving-runtime.md
 affects:
