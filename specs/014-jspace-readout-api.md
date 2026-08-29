@@ -7,7 +7,7 @@ affects:
   - internal/runtime/
 effort: medium
 created: 2026-07-22
-updated: 2026-07-22
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -31,12 +31,18 @@ jspace data" — proxying is never affected.
 
 ## Components
 
-1. **Request ids** — the shim mints a rid for every
-   `POST /v1/chat/completions` (and `/v1/messages`) and
-   returns it as the `X-Request-Id` response header. On the proxy
-   path this is a `proxy.Director`/`ModifyResponse` pair; on the
-   intercepted paths (`chatCompletions`, `anthropicMessages`) it is
-   set explicitly. Engine-leg propagation is per-adapter
+1. **Request ids** — the shim mints a rid for every request on any of
+   its three caller surfaces (`/v1/chat/completions`, `/v1/messages`,
+   `/v1/responses` — [[025-dialect-surfaces]]) and returns it as the
+   `X-Request-Id` response header.
+
+   025 replaced the per-dialect handler pair this paragraph assumed
+   with one `surfaces` map keyed by path, and each surface is either
+   proxied (`forward`) or translated (`translated`) depending on the
+   manifest's `engine_dialect`. Mint the rid in `dialectSurface`, above
+   that split, so it does not have to be done once per branch; the
+   `httputil.ReverseProxy` is still there for the engine leg. Engine-leg
+   propagation is per-adapter
    ([[013-inengine-capture]] §4); the shim keeps the rid↔engine-id
    mapping so frames join regardless of mechanism.
 2. **Frame ingest** (`internal/runtime/jspace.go`, new) — a
@@ -78,8 +84,9 @@ jspace data" — proxying is never affected.
 1. Fake-publisher unit tests: frames in → SSE out, ordered per rid;
    two concurrent subscribers receive identical streams; late
    subscriber gets the ring replay.
-2. Every chat response (proxied and intercepted paths, streaming and
-   not) carries `X-Request-Id` (httptest against a fake engine).
+2. Every response on all three caller surfaces (proxied and translated,
+   streaming and not) carries `X-Request-Id` (httptest against a fake
+   engine).
 3. e2e (extends the [[013-inengine-capture]] vLLM CPU run): the rid
    from a streamed completion's response header yields live SSE
    frames while tokens are still generating; `/jspace/requests` lists
