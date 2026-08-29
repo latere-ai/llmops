@@ -12,7 +12,7 @@ affects:
   - Dockerfile.sglang
 effort: medium
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -87,12 +87,28 @@ worth doing when a second model needs it — Future, not here.
 3. Manifest validation **rejects** the three DSpark foot-guns with tests
    that fail without the rule: DSPARK paired with
    `--speculative-draft-model-path`, with `--pp-size` > 1, or with
-   `--enable-dp-attention`.
+   `--enable-dp-attention`. **Holds today.**
+
+   [[027-qwen-fast-path]] generalized the first rule after this shipped.
+   Where the draft head lives is a property of the checkpoint, not of
+   the algorithm: DeepSeek publishes one **inside** the target
+   checkpoint, so there is no path to give; Qwen's is a separately
+   published repo, so there is one — and it is derived from that repo's
+   `hf_repo` at serve time. Both are DSpark. Keying the rule on the
+   algorithm name alone made its first version reject the second case.
+   The manifest never writes the path either way, for the same reason
+   primary weights name no directory ([[021-local-weight-loading]]).
+
+   The rules also now run once per way the model can be started: the
+   bare `args`, and `args` plus each entry in a `speculators` map. This
+   model offers no speculators — its head is unconditional — so for it
+   the two are the same check.
 4. Serves on one 8x B200 node via LWS; `/ready` from warm NVMe cache
    recorded, cold recorded separately (expect 10–15 min extra on first
    boot while FlashInfer autotunes and SGLang captures the draft and
    verify CUDA graphs).
-5. e2e suite (`make e2e-deepseek-flash`): chat, streaming, tool-call
+5. e2e suite (`make e2e-deepseek-v4-flash-0731` — the dated name, for
+   the reason the Naming section gives): chat, streaming, tool-call
    round-trip, `reasoning_content` at each of the three effort levels,
    and a ≥384K-context request at `max`.
 6. Benchmark recorded twice on the same corpus — with and without
