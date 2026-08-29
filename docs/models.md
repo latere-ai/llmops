@@ -1,8 +1,9 @@
 # Models
 
-The models Latere runs on llmops. Nothing here is a property of the
-tool: a model is a manifest under [`models/`](../models), and the
-registry is whatever set of manifests a deployment checks in.
+The models Latere serves with llmops — several still blocked, as the
+notes column says. Nothing here is a property of the tool: a model is a
+manifest under [`models/`](../models), and the registry is whatever set
+of manifests a deployment checks in.
 
 **Deploy** is how each one is run *today*, not a restriction on it. The
 mode is a manifest field, and deploy mode and hardware are independent

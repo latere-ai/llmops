@@ -51,7 +51,8 @@ Go 1.27 or newer, no cgo, no other build dependency:
 ```sh
 git clone https://github.com/latere-ai/llmops.git
 cd llmops
-make build
+make build                       # compile everything
+go install ./cmd/llmops          # puts llmops on your $PATH
 ```
 
 Freeze a model onto a host's own disk, then serve it:
@@ -118,25 +119,30 @@ Pinned manifests with the deploy artifact each one owns, and a
 consistency check between them that runs in CI and in `llmops validate`.
 The whole pipeline is exercised end to end on a laptop.
 
-Not yet done: the multi-hundred-GB mirrors and the GPU deployments. The
-per-model specs record what each one is blocked on, and the
-monitoring-plane specs (012 through 016) are design only, with no code
-in this repo yet.
+Qwen3.8-27B's weights are frozen on a GB10 host and its manifest and
+unit are checked in; the endpoint is not up yet.
+
+Not yet done: the multi-hundred-GB mirrors, the GPU deployments, and
+gateway registration. The per-model specs record what each one is
+blocked on, and the monitoring-plane specs (012 through 016) are design
+only, with no code in this repo yet.
 
 APIs are not frozen. The manifest schema, the shim's endpoints and the
 CLI flags may change while the first models are brought up.
 
 ## How Latere uses it
 
-Latere runs llmops as its inference layer: seven open-weight models,
-frozen once into S3, served on bare-metal Kubernetes GPU nodes and one
-single-GPU GB10 host, registered as providers behind Lux, the Latere
-model gateway. Lux serves its own dialect and embeds the same
+llmops is built to be Latere's inference layer, in place of renting
+model access through a router: seven open-weight models pinned and
+frozen, six for bare-metal Kubernetes GPU nodes and one for a
+single-GPU GB10 host, each registered as a provider behind Lux, the
+Latere model gateway. Lux serves its own dialect and embeds the same
 translator package, so a model endpoint and the gateway in front of it
-never disagree about what a request means.
+never disagree about what a request means. What is up today and what is
+still blocked is the Status section above.
 
-That set is one deployment's answer, not the tool's. The fleet, the
-hardware it runs on, and what each model is blocked on are in
+That set is one deployment's answer, not the tool's. The models, the
+hardware each one targets, and what each is blocked on are in
 [docs/models.md](docs/models.md).
 
 ## License
