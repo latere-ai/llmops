@@ -42,7 +42,7 @@ and only three:
 | 024 | [One binary: the llmops command](024-single-cli.md) | complete | Three binaries collapse into ten flat `llmops` subcommands |
 | 025 | [Dialect surfaces](025-dialect-surfaces.md) | complete | All three caller dialects; engine dialect declared, loss reported |
 | 026 | [Harness integration](026-harness-integration.md) | complete | `ps`, `endpoint --harness`, `run` — the last mile to coding against it |
-| 027 | [Qwen fast path](027-qwen-fast-path.md) | draft | NVFP4 + speculative decoding: 3 tok/s measured, ~50 available |
+| 027 | [Qwen fast path](027-qwen-fast-path.md) | partial | NVFP4 + a chosen draft head; built and validating, nothing served yet |
 
 ### What is built, and what each built spec still owes
 
@@ -54,6 +54,7 @@ and only three:
 | 002 | AC4/AC5 — the mirror tool is built and tested, but the ~2.7 TB fleet set is not mirrored and no engine has loaded from an S3 prefix. |
 | 003 | AC1/AC4 — the health contract, both dialect surfaces and the warm-cache skip are built and tested; `s3-stream` has never run against a real engine. |
 | 010 | AC1/AC3/AC4 — `llmops bench` is built and has measured a live model; the dashboards, the numbers-into-specs flow and the router comparison do not exist. |
+| 027 | AC1/AC3/AC4/AC5/AC8 — the schema, the serving path and the operator surfaces are built and the manifest validates, but **nothing has been served**: no weights on the box, no throughput measured, no quality comparison against the BF16 endpoint. |
 
 Everything else those specs asked for holds. 001, 011, 021, 024, 025 and
 026 are closed.

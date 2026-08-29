@@ -105,6 +105,37 @@ Two consequences for planning:
 - Quantization and speculation **multiply**. 4x fewer bytes and ~4x
   accepted tokens is the 17x between those two figures.
 
+### Choosing a draft head
+
+A model usually has more than one draft head published for it, and
+there is no single winner. The three for Qwen3.8-27B, on the same
+weights and the same GPU:
+
+| Draft head | Code | Prose | Fetched |
+|---|---|---|---|
+| DSpark | **51.5** | 18.3 | 2.7 GB |
+| DFlash2 | 50.9 | **25.4** | 2.6 GB |
+| MTP | 34.5 | 24.1 | nothing — it is in the checkpoint |
+
+DSpark wins on code by 17 tok/s and loses on prose by 7, so the head is
+chosen per workload when the model is started rather than written into
+the manifest:
+
+```
+llmops serve --manifest models/qwen3.8-27b-fast.yaml --speculator dflash2
+llmops serve --manifest models/qwen3.8-27b-fast.yaml --speculator none
+```
+
+`llmops ps` shows which one is running, and every response carries an
+`X-LLMOps-Speculator` header. Record it alongside any throughput
+number: the same endpoint gives a different figure with a different
+head, so a measurement that omits it cannot be compared to anything.
+
+Bring a newly quantized model up with `--speculator none` first. That
+serves the quantized weights with no draft head, which separates the
+two things that changed — what quantization cost in quality, and what
+speculation bought in speed. Measured together, they tell you neither.
+
 ### Measuring bandwidth, and a trap
 
 Do not use a reduction to measure bandwidth. `tensor.sum()` on this box

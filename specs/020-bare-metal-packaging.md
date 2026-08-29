@@ -142,6 +142,20 @@ The engine itself is installed on the host, not vendored here — a pinned
 `docs/deploy.md` the way image tags are. The runtime launches whatever
 `EngineCommand` resolves to, so this needs no code change.
 
+**One virtualenv per engine, not one per host.** This originally implied
+a single environment, which held only while a host ran one engine. It
+does not survive a host running both: installing SGLang 0.5.18 beside
+the vLLM 0.28.0 that [[022-model-qwen3.8-27b]] serves downgrades
+`transformers` 5.16.1 → 5.12.1 and `xgrammar`, and vLLM stops working.
+The dependency sets are incompatible rather than merely untested, so
+they get separate environments and each unit reaches its own through the
+`PATH` it is given.
+
+This is an operations rule, not a code change: `EngineCommand` already
+launches `vllm` or `python3 -m sglang.launch_server` from whatever
+`PATH` the unit provides. Found while building [[027-qwen-fast-path]],
+which puts a second engine on a box that already had one.
+
 ### The install path
 
 `llmops install --manifest <path>` writes the unit, installs the
@@ -203,8 +217,8 @@ configuration to rot.
   serve, `/ready`, a completion, `/metrics` — against the existing
   in-process fakes, with no GPU and no root.
 - **AC7** docs/deploy.md documents both modes side by side, including which
-  engine versions a bare-metal host must install and that this repo does
-  not manage them.
+  engine versions a bare-metal host must install, that this repo does
+  not manage them, and that each engine gets its own virtualenv.
 
 ## Out of scope
 
