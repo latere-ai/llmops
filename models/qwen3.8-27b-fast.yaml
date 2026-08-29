@@ -1,0 +1,119 @@
+# Qwen3.8-27B, fast path — specs/027. The same model as
+# models/qwen3.8-27b.yaml, quantized to NVFP4 and served with a draft
+# head, trading measured quality for roughly seventeen times the
+# throughput. Both endpoints exist on purpose: the BF16 one is the
+# quality reference this is measured against, so the precision is in
+# the name and neither is ever aliased to the other.
+#
+# The target is the BF16-lm_head variant rather than the packed-FP4
+# one. Its dense head is what lets DFLASH use its native selector, and
+# DSpark is unaffected by the choice, so one target serves all three
+# speculators — which is what makes this a single manifest.
+#
+# Weights are ~24 GB against ~54 GB for BF16. That is the whole first
+# multiplier: decoding is bandwidth-bound, so a quarter of the bytes is
+# four times the tokens before any speculation is involved.
+name: qwen3.8-27b-fast
+hf_repo: RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead
+revision: 009632fef96dd349150baa780c984e62e70e91fe
+format: nvfp4
+license: apache-2.0
+license_note: >-
+  Third-party requantization of the apache-2.0 Qwen3.8-27B. RadixArk is
+  not Qwen; the freeze rules in specs/021 are what make that safe to
+  serve — pinned revision, per-file checksums.
+runtime: sglang
+deploy: bare-metal
+load: local
+gpu: { type: gb10, count: 1, nodes: 1 }
+context_max: 262144
+
+# context_max stays at the model's native 262144 and YaRN stays off.
+# Both separately published draft heads read the target's context
+# configuration, and a YaRN override leaks into the draft config and
+# crashes the engine at boot rather than degrading.
+#
+# --attention-backend flashinfer is required on this compute
+# capability. --kv-cache-dtype fp8_e4m3 halves the cache the BF16
+# endpoint measured at 18.23 GiB; the checkpoint declares FP8 KV
+# anyway, so the flag only keeps it if the quantization changes.
+#
+# --mem-fraction-static is 0.80, the ceiling specs/019 enforces. The
+# published reference for this hardware runs 0.90 and reports 0.95
+# taking the box down. Ours is derived rather than measured
+# (specs/019 AC3a), so raising it is specs/027 AC5 — a measurement,
+# not a value copied from someone else's box.
+args:
+  - --context-length=262144
+  - --mem-fraction-static=0.80
+  - --attention-backend=flashinfer
+  - --kv-cache-dtype=fp8_e4m3
+  - --chunked-prefill-size=8192
+  - --mamba-ssm-dtype=bfloat16
+  - --mamba-radix-cache-strategy=extra_buffer_lazy
+  - --reasoning-parser=qwen3
+
+# Which draft head wins depends on what is being generated, so the
+# choice is the operator's at start time:
+#
+#   llmops serve --manifest models/qwen3.8-27b-fast.yaml --speculator dflash2
+#
+#   speculator   code    prose   head
+#   dspark       51.5    18.3    2.7 GB, separately published
+#   dflash2      50.9    25.4    2.6 GB, separately published
+#   mtp          34.5    24.1    in the checkpoint, nothing to fetch
+#   none         ~12     ~12     no draft head
+#
+# tok/s measured by a third party on this GPU class, not by us —
+# specs/027 AC3 is our own numbers on both prompt kinds.
+#
+# `none` is not a degenerate case. It serves the quantized weights
+# alone, which is the only way to separate what NVFP4 costs in quality
+# from what speculation adds in speed (specs/027 AC4).
+default_speculator: dspark
+speculators:
+  # Fastest on code, which is what this endpoint is for. Its draft was
+  # trained against the FP8 target; matching the draft quantization to
+  # the target did not raise acceptance, so it is left unquantized.
+  #
+  # block-size 7 is the measured code peak and sets num-draft-tokens to
+  # gamma+1 = 8 on its own. block-5 trades 16% of code for 8% of prose.
+  dspark:
+    hf_repo: RadixArk/Qwen3.8-27B-DSpark
+    revision: b9a5dbdf03bc999c6c73c426b19c2d9041cea393
+    license: other
+    license_note: >-
+      Licensed `other`, unlike the apache-2.0 target it drafts for. Read
+      the terms before this endpoint is exposed beyond the lab.
+    args:
+      - --speculative-algorithm=DSPARK
+      - --speculative-dspark-block-size=7
+      - --speculative-draft-model-quantization=unquant
+
+  # A block-diffusion drafter rather than a token model, so the EAGLE
+  # knobs do not apply to it. It ties DSpark on code and clearly beats
+  # it on prose, which is why it is the one to compare against.
+  #
+  # DFLASH rejects extra_buffer_lazy outright; the strategy below is
+  # appended after the model's own args and therefore replaces it.
+  dflash2:
+    hf_repo: z-lab/Qwen3.8-27B-DFlash2
+    revision: 50307d4c4cde6860d4eee73e2547cd786fe8e8a4
+    license: apache-2.0
+    args:
+      - --speculative-algorithm=DFLASH
+      - --speculative-num-draft-tokens=8
+      - --mamba-radix-cache-strategy=extra_buffer
+
+  # The checkpoint's own multi-token-prediction head: no download, no
+  # third-party license, and the weakest of the three on code. It is
+  # here because it is the fallback that needs nothing fetched.
+  #
+  # topk 1 is a linear chain, which requires num-draft-tokens to be
+  # num-steps + 1. 3/1/4 is the measured peak on this hardware.
+  mtp:
+    args:
+      - --speculative-algorithm=EAGLE
+      - --speculative-num-steps=3
+      - --speculative-eagle-topk=1
+      - --speculative-num-draft-tokens=4
