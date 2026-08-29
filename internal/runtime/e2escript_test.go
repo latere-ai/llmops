@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"testing"
 )
 
@@ -17,12 +16,10 @@ import (
 // This ties the script to the route table: every shim path it curls must
 // be one the shim answers.
 func TestE2EScriptCallsOnlyServedPaths(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test file")
-	}
-	repo := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
-	script := filepath.Join(repo, "e2e", "local", "run.sh")
+	// go test runs in the package directory, so the repo root is two
+	// levels up. runtime.Caller would return a trimmed path under
+	// -trimpath and fail here for a reason that reads like a missing file.
+	script := filepath.Join("..", "..", "e2e", "local", "run.sh")
 	data, err := os.ReadFile(script)
 	if err != nil {
 		t.Fatalf("read %s: %v", script, err)
