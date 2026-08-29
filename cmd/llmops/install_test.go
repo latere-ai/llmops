@@ -32,7 +32,7 @@ func TestInstallWritesAndIsIdempotent(t *testing.T) {
 	src := t.TempDir()
 	root := t.TempDir()
 	p := writeBareMetal(t, src)
-	args := []string{"install", "--manifest", p,
+	args := []string{"install", "--manifest", p, "--no-reload",
 		"--config-dir", filepath.Join(root, "etc"),
 		"--unit-dir", filepath.Join(root, "units"),
 	}

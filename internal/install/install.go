@@ -45,6 +45,16 @@ type Options struct {
 	UnitDir   string // where the unit is written
 	CacheRoot string // weights root passed to serve; empty omits the flag
 	User      string // run as this user; empty means systemd's default
+
+	// Reload tells systemd to re-read units after the unit changed.
+	// Defaults to `systemctl daemon-reload`.
+	//
+	// It is injectable because reloading is the one step that touches
+	// the machine rather than a directory: a test writing to a temp
+	// prefix has no business reloading the host's systemd, and on a CI
+	// runner the attempt fails with "Interactive authentication
+	// required" rather than being absent.
+	Reload func(log io.Writer) error
 }
 
 func (o *Options) defaults() {
@@ -153,10 +163,21 @@ func Run(m *manifest.Manifest, srcManifest string, o Options, log io.Writer) (*R
 	fmt.Fprintf(log, "unit     %s (%s)\n", res.UnitPath, changed(res.UnitChanged))
 
 	if res.UnitChanged {
-		if err := daemonReload(log); err != nil {
-			return res, err
+		reload := o.Reload
+		if reload == nil {
+			reload = daemonReload
 		}
-		res.DaemonReloaded = true
+		// A reload failure is reported, not fatal: the unit and manifest
+		// are already correct on disk, and the operator can reload
+		// themselves. Failing here would turn a complete install into a
+		// non-zero exit — and an unprivileged install into a staging
+		// directory is a legitimate use.
+		if err := reload(log); err != nil {
+			fmt.Fprintf(log, "warning: %v\n", err)
+			fmt.Fprintf(log, "the unit is written; run `systemctl daemon-reload` to pick it up\n")
+		} else {
+			res.DaemonReloaded = true
+		}
 	}
 	return res, nil
 }

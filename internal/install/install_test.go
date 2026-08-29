@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -81,12 +82,18 @@ func TestRunIsIdempotent(t *testing.T) {
 		UnitDir:   filepath.Join(root, "units"),
 	}
 
+	reloads := 0
+	opts.Reload = func(io.Writer) error { reloads++; return nil }
+
 	first, err := Run(m, p, opts, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !first.ManifestChanged || !first.UnitChanged {
 		t.Fatal("first install reported no writes")
+	}
+	if !first.DaemonReloaded || reloads != 1 {
+		t.Fatalf("first install reloaded %d times, want 1", reloads)
 	}
 
 	// A second identical run must change nothing, so systemd is not
@@ -98,6 +105,40 @@ func TestRunIsIdempotent(t *testing.T) {
 	if second.ManifestChanged || second.UnitChanged || second.DaemonReloaded {
 		t.Fatalf("second install was not a no-op: %+v", second)
 	}
+	if reloads != 1 {
+		t.Fatalf("a no-op install reloaded systemd (%d times total)", reloads)
+	}
+}
+
+// TestRunSurvivesReloadFailure pins that a reload we are not allowed to
+// perform does not fail the install. The files are already correct; an
+// unprivileged install into a staging directory is legitimate, and CI
+// runners have a systemctl that refuses rather than one that is absent.
+func TestRunSurvivesReloadFailure(t *testing.T) {
+	src := t.TempDir()
+	m, p := bareMetalManifest(t, src)
+	root := t.TempDir()
+	var log strings.Builder
+	res, err := Run(m, p, Options{
+		ConfigDir: filepath.Join(root, "etc"),
+		UnitDir:   filepath.Join(root, "units"),
+		Reload:    func(io.Writer) error { return errors.New("Interactive authentication required") },
+	}, &log)
+	if err != nil {
+		t.Fatalf("reload failure made the install fail: %v", err)
+	}
+	if !res.UnitChanged {
+		t.Fatal("unit was not written")
+	}
+	if res.DaemonReloaded {
+		t.Fatal("reported a reload that failed")
+	}
+	if !strings.Contains(log.String(), "systemctl daemon-reload") {
+		t.Fatalf("did not tell the operator what to run: %q", log.String())
+	}
+	if _, err := os.Stat(res.UnitPath); err != nil {
+		t.Fatalf("unit missing after a failed reload: %v", err)
+	}
 }
 
 func TestRunUpdatesChangedManifest(t *testing.T) {
@@ -108,6 +149,7 @@ func TestRunUpdatesChangedManifest(t *testing.T) {
 		BinPath:   filepath.Join(root, "bin", "llmops"),
 		ConfigDir: filepath.Join(root, "etc"),
 		UnitDir:   filepath.Join(root, "units"),
+		Reload:    func(io.Writer) error { return nil },
 	}
 	if _, err := Run(m, p, opts, io.Discard); err != nil {
 		t.Fatal(err)
@@ -174,7 +216,8 @@ args: ["--tp-size=8"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(m, p, Options{ConfigDir: dir, UnitDir: dir}, io.Discard); err == nil ||
+	if _, err := Run(m, p, Options{ConfigDir: dir, UnitDir: dir,
+		Reload: func(io.Writer) error { return nil }}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "bare-metal") {
 		t.Fatalf("k8s model accepted by install: %v", err)
 	}

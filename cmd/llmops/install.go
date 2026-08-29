@@ -22,6 +22,7 @@ func runInstall(rest []string, out, errw io.Writer) error {
 	cacheRoot := fs.String("cache-root", "", "weights root passed to serve (omitted if empty)")
 	user := fs.String("user", "", "run the service as this user")
 	print := fs.Bool("print", false, "write nothing; print the unit that would be installed")
+	noReload := fs.Bool("no-reload", false, "write the files but do not run systemctl daemon-reload")
 	if err := fs.Parse(rest); err != nil || *path == "" {
 		return usagef("usage: llmops install --manifest <manifest.yaml> [--print]")
 	}
@@ -35,6 +36,11 @@ func runInstall(rest []string, out, errw io.Writer) error {
 		UnitDir:   *unitDir,
 		CacheRoot: *cacheRoot,
 		User:      *user,
+	}
+	if *noReload {
+		// Staging units for another machine, or installing somewhere
+		// this process has no business reloading.
+		opts.Reload = func(io.Writer) error { return nil }
 	}
 	if *print {
 		if m.DeployMode() != manifest.DeployBareMetal {

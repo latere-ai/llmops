@@ -147,7 +147,21 @@ The engine itself is installed on the host, not vendored here — a pinned
 `llmops install --manifest <path>` writes the unit, installs the
 manifest to `/etc/llmops/`, and reloads systemd — but only when the unit
 actually changed, so a repeated install is a genuine no-op rather than a
-restart. `--print` renders the unit without writing anything.
+restart. `--print` renders the unit without writing anything, and
+`--no-reload` writes the files without touching systemd, for staging a
+unit destined for another machine.
+
+**A failed reload is reported, not fatal.** By the time systemd is asked
+to reload, the unit and manifest are already correct on disk; failing
+the command would turn a complete install into a non-zero exit and
+imply nothing was written. The operator is told to run
+`systemctl daemon-reload` instead.
+
+The reload is injectable for the same reason it is non-fatal: it is the
+one step that touches the machine rather than a directory. A test
+writing to a temp prefix has no business reloading the host's systemd —
+and a CI runner has a `systemctl` that *refuses* rather than one that is
+absent, which is how this shipped red the first time.
 
 Installing a `deploy: k8s` model is refused: it would start a fleet
 model outside the scheduler that is supposed to own it.
@@ -179,6 +193,9 @@ configuration to rot.
   every checked-in unit matches what `llmops install` renders with
   default options.
 - **AC4b** Installing a `deploy: k8s` model is refused.
+- **AC4c** A reload that fails leaves the unit and manifest written,
+  exits zero, and names the command the operator should run. The test
+  suite never reloads the host's systemd.
 - **AC5** `deploycheck` validates a bare-metal model against its unit
   file, and a test fails when `ExecStart` names a different manifest or
   binary.
