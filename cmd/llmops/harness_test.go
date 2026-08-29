@@ -269,15 +269,17 @@ args: ["--max-model-len=4096", "--gpu-memory-utilization=0.65"]
 	}
 }
 
-// stubExec replaces the process-replacing exec for the duration of a
-// test, capturing the environment the harness would have received.
+// stubExec stands in for both steps that leave the program: the PATH
+// lookup and the exec. Stubbing only one leaves the test dependent on
+// whether the harness happens to be installed on the machine running it.
 func stubExec(env *[]string) func() {
-	prev := execHarness
+	prevLook, prevExec := lookHarness, execHarness
+	lookHarness = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	execHarness = func(_ string, _ []string, e []string) error {
 		*env = e
 		return nil
 	}
-	return func() { execHarness = prev }
+	return func() { lookHarness, execHarness = prevLook, prevExec }
 }
 
 // TestRunExecsWithPassthroughArgs pins that everything after -- reaches
@@ -285,12 +287,13 @@ func stubExec(env *[]string) func() {
 func TestRunExecsWithPassthroughArgs(t *testing.T) {
 	cfg, units := installedHost(t, "ready")
 	var gotArgs, gotEnv []string
-	prev := execHarness
+	prevLook, prevExec := lookHarness, execHarness
+	lookHarness = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	execHarness = func(_ string, argv []string, e []string) error {
 		gotArgs, gotEnv = argv, e
 		return nil
 	}
-	defer func() { execHarness = prev }()
+	defer func() { lookHarness, execHarness = prevLook, prevExec }()
 
 	var out, errw strings.Builder
 	if code := run([]string{"run", "claude", "--config-dir", cfg, "--unit-dir", units,
@@ -310,5 +313,25 @@ func TestRunExecsWithPassthroughArgs(t *testing.T) {
 		if !slices.Contains(gotEnv, want) {
 			t.Errorf("environment missing %q", want)
 		}
+	}
+}
+
+// TestRunReportsAMissingHarness keeps the PATH lookup a real step: with
+// both boundaries stubbed everywhere else, a harness that is genuinely
+// not installed must still produce a clear error.
+func TestRunReportsAMissingHarness(t *testing.T) {
+	cfg, units := installedHost(t, "ready")
+	prev := lookHarness
+	lookHarness = func(name string) (string, error) {
+		return "", fmt.Errorf("executable file not found in $PATH")
+	}
+	defer func() { lookHarness = prev }()
+
+	var out, errw strings.Builder
+	if code := run([]string{"run", "claude", "--config-dir", cfg, "--unit-dir", units}, &out, &errw); code == 0 {
+		t.Fatal("run succeeded with the harness missing")
+	}
+	if !strings.Contains(errw.String(), "not on PATH") {
+		t.Fatalf("error does not name the cause: %q", errw.String())
 	}
 }

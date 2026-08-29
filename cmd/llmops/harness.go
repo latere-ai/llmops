@@ -16,12 +16,19 @@ import (
 	"github.com/latere-ai/llmops/internal/install"
 )
 
-// execHarness replaces this process with the harness. It is a variable
-// for the same reason install's daemon-reload is: it is the one step
-// that leaves the program, and a test that reached it would replace the
-// test binary rather than fail — which is exactly what happened the
-// first time, since `claude` was on PATH.
-var execHarness = syscall.Exec
+// lookHarness and execHarness are the two steps that leave the program:
+// finding the harness on PATH, and becoming it. Both are variables so a
+// test can stand in for them.
+//
+// Injecting only the second was not enough, and failed in both
+// directions: locally `claude` is on PATH, so the real exec replaced the
+// test binary; on CI it is absent, so the lookup failed before the stub
+// was ever reached. A half-injected boundary is worse than none, because
+// it passes wherever it was written.
+var (
+	lookHarness = exec.LookPath
+	execHarness = syscall.Exec
+)
 
 // defaultToken is what we hand a harness that insists on one. The shim
 // has no authentication (specs/026); this exists so a client does not
@@ -180,7 +187,7 @@ func runHarness(rest []string, out, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	bin, err := exec.LookPath(h.Name)
+	bin, err := lookHarness(h.Name)
 	if err != nil {
 		return fmt.Errorf("%s is not on PATH: %w", h.Name, err)
 	}
