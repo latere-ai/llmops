@@ -32,6 +32,7 @@ number order — the numbering is the implementation order.
 | 023 | [Model: DeepSeek-V4-Flash-0731 (GB10)](023-model-deepseek-v4-flash-0731-gb10.md) | draft | Reduced-precision tier, separate endpoint; gated on a product call |
 | 024 | [One binary: the llmops command](024-single-cli.md) | draft | Three binaries collapse into nine flat `llmops` subcommands |
 | 025 | [Dialect surfaces](025-dialect-surfaces.md) | draft | Serve all three caller dialects; engine dialect declared, loss reported |
+| 026 | [Harness integration](026-harness-integration.md) | draft | `ps`, `endpoint --harness`, `run` — the last mile to coding against it |
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both; each
 model spec needs 003 + 008; 004 (Kimi) is deliberately first — cheapest
@@ -84,6 +85,13 @@ with both codecs each, and the shim wires two of the eight: one caller
 surface, and an engine dialect assumed rather than declared. It also
 drops the loss report the package exists to produce — a caller asking
 for logprobs through Anthropic Messages is told nothing.
+
+026 is the last mile. A model serving on a host is not yet a model you
+are using: the port, the dialect path, the invented API key and the
+config format all have to be assembled by hand, and every one of them is
+derivable. It depends on 025 for the surface a harness can be pointed
+at, and refuses rather than guesses when a harness speaks a dialect the
+model does not serve.
 
 The jspace monitoring plane (012→015) proves end to end on the local
 Qwen3-0.6B stack before any fleet GPU is spent; 016 gates fleet-model
