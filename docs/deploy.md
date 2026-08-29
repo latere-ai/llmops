@@ -102,6 +102,10 @@ curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
 curl -s localhost:8000/v1/messages -H 'Content-Type: application/json' \
   -d '{"model":"kimi-k2.7-code","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
 
+# OpenAI Responses surface (llmdialect translation)
+curl -s localhost:8000/v1/responses -H 'Content-Type: application/json' \
+  -d '{"model":"kimi-k2.7-code","input":"hello"}'
+
 # Metrics (engine passthrough + llmops_weights_load_seconds)
 curl -s localhost:8000/metrics | grep llmops
 
@@ -148,11 +152,12 @@ local engine is mlx.
 | `license`, `license_note` | free text | compliance record; gates noted here block Lux exposure |
 | `runtime` | `sglang` \| `vllm` \| `custom` | which engine image; `custom` requires `image:` and serves any container honoring the health contract |
 | `image` | image ref | custom-runtime container (OCR wrappers etc.) |
+| `engine_dialect` | `openai-chat` (default) \| `anthropic-messages` \| `openai-responses` | the wire dialect the engine itself speaks. All three caller surfaces are served whatever it is; the matching one is proxied untouched, the others translate and report what the translation dropped in `X-LLMOps-Compat-Loss` and `llmops_dialect_loss_total` |
 | `load` | `nvme-cache` (default) \| `s3-stream` | staged via node NVMe, or vLLM-only direct S3 streaming |
 | `gpu` | `{type, count, nodes}` | resource shape; must match the LWS manifest (CI-checked) |
 | `context_max` | int | documented context config; pair with the KV-cache args it needs |
 | `args` | list, verbatim | engine CLI flags — parallelism (`--tp-size`), parsers (`--tool-call-parser`), quantization, KV dtype. Per-model required flags are enforced (MiniMax `--block-size=128`; Kimi-K3 and V4-Flash-0731 `--trust-remote-code`), as are the DSpark constraints: with `--speculative-algorithm DSPARK`, a separate `--speculative-draft-model-path`, `--pp-size` > 1, or DP attention are rejected |
-| `system_prompt` | `{mode, text}` | enforced by the shim on every request, both dialects: `default` (only when caller sends none) \| `prepend` \| `override` |
+| `system_prompt` | `{mode, text}` | enforced by the shim on every request, whichever surface it arrives on: `default` (only when caller sends none) \| `prepend` \| `override` |
 
 The runtime always adds `--served-model-name <name>` so callers address
 the manifest name, and renders the base engine command itself — `args`
@@ -163,7 +168,7 @@ only carries model-specific flags.
 | Knob | Default | Purpose |
 |---|---|---|
 | `--manifest` | `/etc/llmops/model.yaml` | manifest path (mounted ConfigMap) |
-| `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, `/v1/*`, `/v1/messages`) |
+| `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, and all three caller surfaces: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`) |
 | `--engine-port` | 30000 | engine's internal port |
 | `--cache-root` | `/cache` | NVMe cache mount; keyed by repo+revision, flock-shared across pods on a node |
 | `LLMOPS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |
