@@ -65,13 +65,19 @@ func runPS(rest []string, out, errw io.Writer) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATE\tPORT\tRUNTIME\tGPU\tLOADED")
+	fmt.Fprintln(tw, "NAME\tSTATE\tPORT\tRUNTIME\tGPU\tSPECULATOR\tLOADED")
 	for _, m := range models {
 		loaded := "-"
 		if m.Loaded > 0 {
 			loaded = fmt.Sprintf("%.1fs", m.Loaded)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\n", m.Name, m.State, m.Port, m.Runtime, m.GPU, loaded)
+		// A model that is down reports nothing. "-" reads as "not
+		// known", where "none" would claim speculation is off.
+		spec := "-"
+		if m.Speculator != "" {
+			spec = m.Speculator
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n", m.Name, m.State, m.Port, m.Runtime, m.GPU, spec, loaded)
 	}
 	return tw.Flush()
 }

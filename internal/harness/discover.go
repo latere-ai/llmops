@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/latere-ai/llmops/internal/manifest"
+	"github.com/latere-ai/llmops/internal/runtime"
 )
 
 // DefaultPort is what `llmops serve` listens on unless told otherwise.
@@ -27,6 +28,14 @@ type Model struct {
 	Port    int
 	State   string  // ready | loading | down
 	Loaded  float64 // seconds spent preparing weights; 0 if unknown
+
+	// Speculator is the draft-model configuration the running process
+	// was started with. It is read from the endpoint rather than the
+	// manifest because the manifest only offers a default: an operator
+	// can start the same model with a different draft head, and the
+	// manifest would then describe something that is not running
+	// (specs/027).
+	Speculator string `json:",omitempty"`
 }
 
 // Ready reports whether this model can serve a request.
@@ -55,7 +64,7 @@ func Discover(configDir, unitDir string, timeout time.Duration) ([]Model, error)
 			GPU:     fmt.Sprintf("%dx%s", m.GPU.Count, m.GPU.Type),
 			Port:    portFromUnit(filepath.Join(unitDir, m.Name+".service")),
 		}
-		mod.State, mod.Loaded = probe(mod.Name, mod.Port, timeout)
+		mod.State, mod.Loaded, mod.Speculator = probe(mod.Name, mod.Port, timeout)
 		out = append(out, mod)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -95,16 +104,20 @@ func portFromUnit(path string) int {
 // whatever is serving there would otherwise be reported as all of them.
 // Asking the endpoint which model it serves is what makes `ps` report
 // reality rather than a coincidence of port numbers.
-func probe(name string, port int, timeout time.Duration) (state string, loaded float64) {
+func probe(name string, port int, timeout time.Duration) (state string, loaded float64, speculator string) {
 	c := &http.Client{Timeout: timeout}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	resp, err := c.Get(base + "/ready")
 	if err != nil {
-		return "down", 0
+		return "down", 0, ""
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	// The shim reports the active draft head on every response, so the
+	// answer arrives with the readiness check rather than costing a
+	// second request (specs/027).
+	speculator = resp.Header.Get(runtime.SpeculatorHeader)
 	state = strings.TrimSpace(string(body))
 	if state == "" {
 		state = "down"
@@ -114,9 +127,9 @@ func probe(name string, port int, timeout time.Duration) (state string, loaded f
 	}
 	if state == "ready" && !serves(c, base, name) {
 		// Something is up on this port, but not this model.
-		return "down", 0
+		return "down", 0, ""
 	}
-	return state, weightsLoaded(c, base)
+	return state, weightsLoaded(c, base), speculator
 }
 
 // serves reports whether the endpoint is serving this model. An engine

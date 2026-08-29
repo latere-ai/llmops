@@ -46,6 +46,12 @@ type Options struct {
 	CacheRoot string // weights root passed to serve; empty omits the flag
 	User      string // run as this user; empty means systemd's default
 
+	// Speculator pins the draft-model configuration into the unit, so a
+	// restart serves what the operator installed rather than falling
+	// back to whatever the manifest defaults to. Empty omits the flag
+	// and leaves that decision to the manifest (specs/027).
+	Speculator string
+
 	// Reload tells systemd to re-read units after the unit changed.
 	// Defaults to `systemctl daemon-reload`.
 	//
@@ -92,6 +98,9 @@ func Unit(m *manifest.Manifest, o Options) string {
 	exec := o.BinPath + " serve --manifest " + o.ManifestPath(m)
 	if o.CacheRoot != "" {
 		exec += " --cache-root " + o.CacheRoot
+	}
+	if o.Speculator != "" {
+		exec += " --speculator " + o.Speculator
 	}
 
 	var b strings.Builder

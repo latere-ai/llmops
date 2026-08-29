@@ -21,21 +21,29 @@ func runInstall(rest []string, out, errw io.Writer) error {
 	unitDir := fs.String("unit-dir", install.DefaultUnitDir, "where the unit is written")
 	cacheRoot := fs.String("cache-root", "", "weights root passed to serve (omitted if empty)")
 	user := fs.String("user", "", "run the service as this user")
+	speculator := fs.String("speculator", "",
+		`draft-model configuration to pin into the unit; "none" disables speculation (default: the manifest's)`)
 	print := fs.Bool("print", false, "write nothing; print the unit that would be installed")
 	noReload := fs.Bool("no-reload", false, "write the files but do not run systemctl daemon-reload")
 	if err := fs.Parse(rest); err != nil || *path == "" {
-		return usagef("usage: llmops install --manifest <manifest.yaml> [--print]")
+		return usagef("usage: llmops install --manifest <manifest.yaml> [--speculator <name|none>] [--print]")
 	}
 	m, err := manifest.Load(*path)
 	if err != nil {
 		return err
 	}
+	// Resolve here so an unknown name fails before anything is written,
+	// rather than at the first start of a unit that looks installed.
+	if _, err := m.ResolveSpeculator(*speculator); err != nil {
+		return err
+	}
 	opts := install.Options{
-		BinPath:   *binPath,
-		ConfigDir: *configDir,
-		UnitDir:   *unitDir,
-		CacheRoot: *cacheRoot,
-		User:      *user,
+		BinPath:    *binPath,
+		ConfigDir:  *configDir,
+		UnitDir:    *unitDir,
+		CacheRoot:  *cacheRoot,
+		User:       *user,
+		Speculator: *speculator,
 	}
 	if *noReload {
 		// Staging units for another machine, or installing somewhere
