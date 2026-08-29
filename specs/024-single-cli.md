@@ -11,7 +11,7 @@ affects:
   - Dockerfile.vllm
   - Dockerfile.mirror
   - deploy/
-  - DEPLOY.md
+  - docs/deploy.md
   - README.md
 effort: small
 created: 2026-08-29
@@ -138,7 +138,7 @@ answered it.
 | systemd unit ([[020-bare-metal-packaging]]) | the old binary name in `ExecStart` | `/usr/local/bin/llmops serve` |
 | Makefile | a per-binary `go run ./cmd/…` | `go run ./cmd/llmops validate` |
 | `make dist` | three binaries per platform | one |
-| DEPLOY.md, README | three tools | one, with subcommands |
+| docs/deploy.md, README | three tools | one, with subcommands |
 
 ## Acceptance criteria
 
@@ -158,7 +158,7 @@ answered it.
   arm64 binaries becomes 7.2 MB in one** — a little under a quarter,
   since the shared packages were being linked three times and `-s -w`
   now strips the result.
-- **AC5** Every Dockerfile entrypoint, the Makefile, DEPLOY.md, README
+- **AC5** Every Dockerfile entrypoint, the Makefile, docs/deploy.md, README
   and [[020-bare-metal-packaging]]'s unit file name `llmops`; no
   reference to a `runtime`, `mirror` or `bench` binary survives.
 - **AC6** `llmops version` reports a version and commit injected at build

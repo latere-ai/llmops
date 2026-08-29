@@ -10,7 +10,7 @@ affects:
   - internal/install/
   - deploy/
   - Makefile
-  - DEPLOY.md
+  - docs/deploy.md
 effort: medium
 created: 2026-08-28
 updated: 2026-08-28
@@ -139,7 +139,7 @@ repo's copy, not every rendering.
 
 The engine itself is installed on the host, not vendored here — a pinned
 `vllm` or `sglang` in a virtualenv, with the version recorded in
-`DEPLOY.md` the way image tags are. The runtime launches whatever
+`docs/deploy.md` the way image tags are. The runtime launches whatever
 `EngineCommand` resolves to, so this needs no code change.
 
 ### The install path
@@ -202,7 +202,7 @@ configuration to rot.
 - **AC6** `make e2e` covers the bare-metal path end to end — install,
   serve, `/ready`, a completion, `/metrics` — against the existing
   in-process fakes, with no GPU and no root.
-- **AC7** DEPLOY.md documents both modes side by side, including which
+- **AC7** docs/deploy.md documents both modes side by side, including which
   engine versions a bare-metal host must install and that this repo does
   not manage them.
 

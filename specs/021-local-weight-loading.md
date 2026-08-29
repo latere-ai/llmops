@@ -9,7 +9,7 @@ affects:
   - internal/runtime/prep.go
   - internal/mirror/
   - cmd/llmops/
-  - DEPLOY.md
+  - docs/deploy.md
 effort: small
 created: 2026-08-28
 updated: 2026-08-28
@@ -154,7 +154,7 @@ which is what `OpenStore` already does internally. Two fields for one
 concept is the weaker design.
 
 Rejected **here** because the rename touches all six existing manifests,
-`validateS3Prefix`, `deploycheck`, the mirror CLI and DEPLOY.md, and
+`validateS3Prefix`, `deploycheck`, the mirror CLI and docs/deploy.md, and
 this spec is meant to be small. It is worth doing as its own scoped
 refactor. Recorded so the additive choice is visible as a deliberate
 deferral rather than the intended shape.
@@ -181,7 +181,7 @@ deferral rather than the intended shape.
   accepts, and that `PrepareWeights` then verifies clean.
 - **AC7** `make e2e` covers pull → freeze → serve on a local directory
   with no S3 and no MinIO in the path.
-- **AC8** DEPLOY.md documents the mode, including that it is the
+- **AC8** docs/deploy.md documents the mode, including that it is the
   operator's job to place and freeze the directory.
 
 ## Out of scope

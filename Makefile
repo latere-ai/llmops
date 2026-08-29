@@ -74,7 +74,7 @@ images:
 	docker build -f Dockerfile.vllm -t $(REGISTRY)/llmops-runtime-vllm:dev .
 	docker build -f Dockerfile.mirror -t $(REGISTRY)/llmops-mirror:dev .
 
-# Versioned build + push of all four images (see DEPLOY.md).
+# Versioned build + push of all four images (see docs/deploy.md).
 # Usage: make release VERSION=v0.1.0 [REGISTRY=...]
 # (requires docker login against $(REGISTRY))
 release:

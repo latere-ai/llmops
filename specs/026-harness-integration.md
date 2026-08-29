@@ -9,7 +9,7 @@ affects:
   - cmd/llmops/
   - internal/install/
   - README.md
-  - PRACTICE.md
+  - docs/practice.md
 effort: medium
 created: 2026-08-29
 updated: 2026-08-29

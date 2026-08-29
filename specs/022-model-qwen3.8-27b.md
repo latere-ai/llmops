@@ -241,7 +241,7 @@ misconfiguration — it is what a dense 27B at BF16 costs here. It is
 still too slow for interactive use.
 
 (An earlier draft cited ~60% against a bandwidth figure taken from
-memory rather than measured. See `PRACTICE.md` for the measurement, and
+memory rather than measured. See `docs/practice.md` for the measurement, and
 for the trap that a reduction kernel reports 164 GB/s and is not
 measuring memory at all.)
 

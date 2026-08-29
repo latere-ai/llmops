@@ -3,7 +3,7 @@
 How to take a model from Hugging Face to a serving endpoint behind Lux:
 build the images, freeze the weights into S3, deploy on GPU Kubernetes,
 and verify. The configuration reference at the end lists every
-customization knob. Design rationale lives in [`specs/`](./specs/README.md).
+customization knob. Design rationale lives in [`specs/`](../specs/README.md).
 
 ## Prerequisites
 
@@ -29,7 +29,7 @@ builds and pushes `linux/amd64` images (default registry
 `ghcr.io/latere-ai`; the image *names* are fixed, the registry prefix is
 yours):
 
-- `llmops-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](./specs/001-inference-engine-selection.md)) + `runtime` entrypoint
+- `llmops-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](../specs/001-inference-engine-selection.md)) + `runtime` entrypoint
 - `llmops-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools
 - `llmops-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
 - `llmops-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job

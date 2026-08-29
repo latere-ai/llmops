@@ -8,7 +8,7 @@ affects:
   - internal/runtime/shim.go
   - internal/manifest/
   - README.md
-  - DEPLOY.md
+  - docs/deploy.md
 effort: medium
 created: 2026-08-29
 updated: 2026-08-29
@@ -137,7 +137,7 @@ prevent.
 - **AC6** The Anthropic surface moves to `/v1/messages`, and a test
   asserts the shim's route table and the engine's own routes do not
   overlap for the pinned engine version.
-- **AC7** README and DEPLOY.md list the served surfaces per model, since
+- **AC7** README and docs/deploy.md list the served surfaces per model, since
   "what can talk to this endpoint" is now a manifest-level answer.
 
 ## Out of scope

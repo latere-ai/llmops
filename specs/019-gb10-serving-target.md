@@ -7,7 +7,7 @@ affects:
   - internal/manifest/
   - internal/deploycheck/
   - deploy/
-  - DEPLOY.md
+  - docs/deploy.md
 effort: medium
 created: 2026-08-28
 updated: 2026-08-28
@@ -230,7 +230,7 @@ flowchart LR
 - **AC6** Validation rejects a `gpu.type: gb10` model that also carries
   a `deploy/<name>/lws.yaml`, so the two deploy modes cannot both claim
   one model.
-- **AC7** `DEPLOY.md` documents this class as a distinct operating mode:
+- **AC7** `docs/deploy.md` documents this class as a distinct operating mode:
   driver floor r580, CUDA 13, `usable ≈ 115 GB`, the budget formula, and
   the one-model-per-box rule.
 - **AC8** [[010-observability-bench]] records that device-memory metrics
