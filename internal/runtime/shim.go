@@ -50,7 +50,24 @@ type Shim struct {
 	// which SGLang and vLLM both expose; overridable for substitute
 	// engines — specs/011).
 	HealthPath string
+
+	// Speculator names the draft-model configuration the engine was
+	// started with, reported on every response (specs/027).
+	//
+	// It is a header rather than a suffix on the served model name:
+	// which speculator is active changes throughput and can change the
+	// tokens produced, so a measurement that does not record it cannot
+	// be attributed — but the model being served is the same model, and
+	// renaming it would break every caller's configuration whenever an
+	// operator restarted with a different draft head.
+	Speculator string
 }
+
+// SpeculatorHeader names the active draft-model configuration, or
+// manifest.SpeculatorNone. It follows LossHeader (specs/025): an
+// engine-side fact the caller cannot otherwise see, reported without
+// changing the payload.
+const SpeculatorHeader = "X-LLMOps-Speculator"
 
 // NewShim fronts the engine at engineURL (e.g. http://127.0.0.1:30000).
 func NewShim(engineURL string) (*Shim, error) {
@@ -159,6 +176,13 @@ func (s *Shim) EngineHealthy() bool {
 }
 
 func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Set before dispatch so it reaches proxied responses too: the
+	// reverse proxy copies the engine's headers in rather than
+	// replacing what is already there. /v1/models therefore carries it
+	// as well, which is what `llmops ps` reads.
+	if s.Speculator != "" {
+		w.Header().Set(SpeculatorHeader, s.Speculator)
+	}
 	switch r.URL.Path {
 	case "/healthz":
 		w.WriteHeader(http.StatusOK)
@@ -403,6 +427,14 @@ func (s *Shim) metrics(w http.ResponseWriter) {
 	fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
 	fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")
 	fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
+
+	// A label-only gauge, so a throughput panel can be broken down by
+	// the speculator that produced it (specs/010, specs/027).
+	if s.Speculator != "" {
+		fmt.Fprintf(w, "# HELP llmops_speculator_info The draft-model configuration the engine is serving with.\n")
+		fmt.Fprintf(w, "# TYPE llmops_speculator_info gauge\n")
+		fmt.Fprintf(w, "llmops_speculator_info{speculator=%q} 1\n", s.Speculator)
+	}
 
 	// One line per (surface, field) a caller asked for and the dialect
 	// could not carry (specs/025).

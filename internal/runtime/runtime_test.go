@@ -372,7 +372,7 @@ func TestNewShimBadURL(t *testing.T) {
 
 func TestEngineCommand(t *testing.T) {
 	m := testManifest("s3://bucket/acme/tiny/" + sha + "/")
-	cmd, err := EngineCommand(m, "/models/x", 30000)
+	cmd, err := EngineCommand(m, "/models/x", 30000, manifest.Speculation{Name: manifest.SpeculatorNone}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,18 +383,18 @@ func TestEngineCommand(t *testing.T) {
 	}
 
 	m.Runtime = manifest.RuntimeVLLM
-	cmd, _ = EngineCommand(m, "/models/x", 30000)
+	cmd, _ = EngineCommand(m, "/models/x", 30000, manifest.Speculation{Name: manifest.SpeculatorNone}, "")
 	if !strings.Contains(strings.Join(cmd, " "), "vllm serve /models/x") {
 		t.Fatalf("vllm cmd = %q", cmd)
 	}
 	m.Load = manifest.LoadS3Stream
-	cmd, _ = EngineCommand(m, "s3://bucket/x/", 30000)
+	cmd, _ = EngineCommand(m, "s3://bucket/x/", 30000, manifest.Speculation{Name: manifest.SpeculatorNone}, "")
 	if !strings.Contains(strings.Join(cmd, " "), "--load-format runai_streamer") {
 		t.Fatalf("s3-stream cmd = %q", cmd)
 	}
 
 	m.Runtime = manifest.RuntimeCustom
-	if _, err := EngineCommand(m, "x", 1); err == nil {
+	if _, err := EngineCommand(m, "x", 1, manifest.Speculation{Name: manifest.SpeculatorNone}, ""); err == nil {
 		t.Fatal("custom runtime must have no engine command")
 	}
 }

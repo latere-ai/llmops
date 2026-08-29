@@ -38,8 +38,10 @@ func runServing(cmd string, rest []string, out, errw io.Writer) error {
 		port := fs.Int("port", 8000, "shim listen port")
 		enginePort := fs.Int("engine-port", 30000, "engine listen port")
 		cacheRoot := fs.String("cache-root", "/cache", "weights root on this host")
+		speculator := fs.String("speculator", "",
+			`draft-model configuration to serve with; "none" disables speculation (default: the manifest's)`)
 		if err := fs.Parse(rest); err != nil || *path == "" {
-			return usagef("usage: llmops serve --manifest <manifest.yaml>")
+			return usagef("usage: llmops serve --manifest <manifest.yaml> [--speculator <name|none>]")
 		}
 		m, err := manifest.Load(*path)
 		if err != nil {
@@ -49,6 +51,7 @@ func runServing(cmd string, rest []string, out, errw io.Writer) error {
 			Port:       *port,
 			EnginePort: *enginePort,
 			CacheRoot:  *cacheRoot,
+			Speculator: *speculator,
 			Log:        errw,
 		}
 		// Test/debug hook: replace the engine command.

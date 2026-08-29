@@ -28,8 +28,34 @@ func PrepareWeights(m *manifest.Manifest, cacheRoot string, store mirror.Store, 
 	if m.Load == manifest.LoadS3Stream {
 		return m.S3Prefix, nil
 	}
-	dir := filepath.Join(cacheRoot, m.HFRepo, m.Revision)
-	if m.Load == manifest.LoadLocal {
+	return prepareArtifact(m.Load, m.HFRepo, m.Revision, cacheRoot, store, log)
+}
+
+// PrepareDraft stages a speculator's draft head and returns the path to
+// hand the engine. It returns "" when the head lives inside the target
+// checkpoint, which is already prepared (specs/017).
+//
+// A draft head is an artifact like any other: same cache layout, same
+// checksum verification, same pinned revision. That is the point of
+// giving speculators their own hf_repo/revision rather than a flag —
+// the freeze guarantee extends to them for free (specs/027).
+func PrepareDraft(sp manifest.Speculator, load, cacheRoot string, store mirror.Store, log io.Writer) (string, error) {
+	if !sp.SeparateHead() {
+		return "", nil
+	}
+	// A draft checkpoint is opened from a path, so it is staged even when
+	// the primary weights stream from S3.
+	if load == manifest.LoadS3Stream {
+		load = manifest.LoadNVMeCache
+	}
+	return prepareArtifact(load, sp.HFRepo, sp.Revision, cacheRoot, store, log)
+}
+
+// prepareArtifact stages one weight directory: verified in place for
+// load: local, synced from the store otherwise.
+func prepareArtifact(load, hfRepo, revision, cacheRoot string, store mirror.Store, log io.Writer) (string, error) {
+	dir := filepath.Join(cacheRoot, hfRepo, revision)
+	if load == manifest.LoadLocal {
 		return verifyInPlace(dir, log)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
