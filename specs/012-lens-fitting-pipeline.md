@@ -10,7 +10,7 @@ affects:
   - Makefile
 effort: medium
 created: 2026-07-22
-updated: 2026-07-22
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -112,6 +112,15 @@ subsystems, so fit-time and serve-time code share `artifact.py`.
    - `jlens upload <dir> --manifest models/<name>.yaml` (s5cmd-style
      put to `<s3_prefix>/_lens/`; refuses if `lens.json` model/revision
      disagree with the manifest)
+
+   A `load: local` model has **no `s3_prefix` at all**
+   ([[021-local-weight-loading]], which landed after this was written),
+   so `_lens/` has nowhere to go for the one class of host most likely
+   to run a fit locally. Resolve at implementation: put the lens beside
+   the weights under the host's `--cache-root`, and let `upload` be the
+   S3 case rather than the only case. Every store primitive in
+   `internal/mirror` is already store-agnostic, so this is a path
+   decision, not a new mechanism.
 5. **Verify gates** (run before upload): (a) final-layer lens top-1
    agrees with model logits on ≥95% of held-out positions (final-layer
    Jacobian ≈ identity, so this checks the whole save/fold/load path);
