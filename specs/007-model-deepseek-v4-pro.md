@@ -8,7 +8,7 @@ affects:
   - deploy/deepseek-v4-pro/
 effort: large
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -38,9 +38,11 @@ blocks on it and records the decision.
 - Engines: SGLang day-0 (≥0.5.12, primary), vLLM ≥0.23 hardened; vLLM
   needs ≥32 GB shared memory in pod spec.
 - `-DSpark` variant (+draft module, 892.8 GB) exists for speculative
-  decoding — Future, not initial scope.
-- V4-Flash (159.6 GB, 13B active) is the cheap fallback if Pro hardware
-  slips — decision point recorded below.
+  decoding — Future for *Pro*, but no longer new to the repo: the 0731
+  Flash refresh bundles its draft head in the same checkpoint and
+  [[017-model-deepseek-v4-flash-0731]] serves it.
+- V4-Flash was 159.6 GB / 13B active when this was written; the 0731
+  refresh that was actually taken is 304B / 13B active at 166.9 GB.
 
 ## Acceptance criteria
 
@@ -52,19 +54,28 @@ blocks on it and records the decision.
    (304B/13B, 166.9 GB, bundled DSpark draft head), on the b200 pool
    this spec had earmarked for preference #1. Pro's own hardware
    decision stays open; AC2 (mirror the weights anyway) still stands.
+
+   `models/deepseek-v4-pro.yaml` pins `gpu: {type: b200, count: 8}` —
+   that is the *shape* preference #1 names, written down so the manifest
+   and the deploy artifact can be validated against each other. It is not
+   a procurement decision: no b200 node exists yet, and this criterion
+   closes when one does.
 2. `deepseek-ai/DeepSeek-V4-Pro` mirrored + verified in S3 (mirror now
    regardless of hardware timing — freezing weights is the point of this
    repo).
 3. Manifest validates; serves on the chosen shape; if multi-node, LWS
    leader/worker + NCCL config documented and cold/warm start measured.
-4. e2e suite (`make e2e-deepseek`): chat, streaming, tool calls, think
-   modes, ≥384K-context request.
+4. e2e suite (`make e2e-deepseek-v4-pro`, the reserved `e2e-<model>` GPU
+   release gate; no such target exists yet — and the full model id
+   matters here because 017 added a second DeepSeek): chat, streaming,
+   tool calls, think modes, ≥384K-context request.
 5. Registered in Lux; baseline benchmark recorded and compared against
    published V4 numbers (lmsys.org/blog/2026-04-25-deepseek-v4).
 
 ## Non-goals
 
-- DSpark speculative decoding; PD-disaggregation at 100+ GPU scale
+- DSpark speculative decoding **for Pro** (017 does it for Flash);
+  PD-disaggregation at 100+ GPU scale
   (vLLM recipes exist — Future); Base checkpoints (post-training).
 
 ## Verification
