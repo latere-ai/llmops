@@ -49,7 +49,7 @@ and only three:
 | # | Open criterion |
 |---|---|
 | 019 | AC4 — the 26 GB host reserve behind the 0.80 memory cap is unmeasured under load, and [027](027-qwen-fast-path.md) reports someone running 0.90–0.95 on this hardware. AC7/AC8 — the deploy guide does not describe the gb10 pool, and [010](010-observability-bench.md) does not record that device-memory metrics are absent on this class. |
-| 020 | AC6 — no end-to-end test covers install → serve → `/ready` → completion. |
+| 020 | AC6 — no end-to-end test covers install → serve → `/ready` → completion. AC7 was recorded met while `docs/deploy.md` described only the cluster path; the bare-metal half is now written, so AC7 holds. |
 | 022 | AC4 — **no 262K-token request has been sent.** The cache holds 292,125 tokens, but capacity is not a served request. |
 | 002 | AC4/AC5 — the mirror tool is built and tested, but the ~2.7 TB fleet set is not mirrored and no engine has loaded from an S3 prefix. |
 | 003 | AC1/AC4 — the health contract, both dialect surfaces and the warm-cache skip are built and tested; `s3-stream` has never run against a real engine. |

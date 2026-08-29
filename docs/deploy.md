@@ -126,6 +126,72 @@ internal use, and no such determination has been recorded, so K3 must not
 be exposed yet. Kimi-K2.7 carries a modified-MIT attribution clause.
 DeepSeek's V4 checkpoints are plain MIT, with no gate.
 
+## 4. Bare-metal hosts
+
+Everything above is the cluster path. A single GPU box with no cluster
+runs the same manifests through an installed binary and a systemd unit
+instead. A model opts in with `deploy: bare-metal`; `deploy: k8s` is the
+default, so nothing else changes.
+
+```sh
+llmops install --manifest models/qwen3.8-27b.yaml --cache-root ~/.models
+systemctl enable --now qwen3.8-27b.service
+llmops ps
+```
+
+`install` writes the unit and copies the manifest to `/etc/llmops/`. It
+is idempotent by content: a repeated install over an unchanged manifest
+does nothing and does not reload systemd. `--print` renders the unit
+without writing it; `--no-reload` writes the files but leaves systemd
+alone, for staging a unit destined for another machine.
+
+Weights come from local disk (`load: local`). `llmops pull` and
+`llmops freeze` place them under `<cache-root>/<hf_repo>/<revision>`,
+and serving verifies them there against `_manifest.json` without
+copying. No bucket is involved.
+
+### Install the engine yourself
+
+This repo does not manage engines on a bare-metal host. Install the
+pinned `vllm` or `sglang` into a virtualenv and make sure the unit's
+`PATH` reaches it.
+
+**Give each engine its own virtualenv.** Installing SGLang beside vLLM
+downgrades `transformers` and `xgrammar`, and vLLM then stops working —
+the dependency sets are incompatible, not merely untested. A box that
+can serve either model needs both environments, even though it serves
+one model at a time.
+
+```sh
+uv venv ~/.venvs/llmops-vllm
+uv pip install --python ~/.venvs/llmops-vllm/bin/python vllm==0.28.0
+
+uv venv ~/.venvs/llmops-sglang
+uv pip install --python ~/.venvs/llmops-sglang/bin/python sglang==0.5.18
+```
+
+### Choosing a draft head
+
+A model offering `speculators` picks one when it starts, because which
+one is fastest depends on the workload — see
+[the practice notes](practice.md#choosing-a-draft-head).
+
+```sh
+llmops serve   --manifest models/qwen3.8-27b-fast.yaml --speculator dflash2
+llmops install --manifest models/qwen3.8-27b-fast.yaml --speculator dflash2
+```
+
+`install --speculator` pins the choice into the unit, so a restart
+serves what you installed rather than the manifest's default. An unknown
+name fails before anything is written. `--speculator none` serves the
+model with no draft head.
+
+`llmops ps` reports which head each model is running, and every response
+carries `X-LLMOps-Speculator`. Quote it with any throughput number.
+
+One GPU serves one model at a time, so changing models or draft heads
+means stopping the running unit first.
+
 ## Local rehearsal
 
 The full pipeline runs on a laptop at zero cloud cost — same manifests,
@@ -153,7 +219,10 @@ local engine is mlx.
 | `runtime` | `sglang` \| `vllm` \| `custom` | which engine image; `custom` requires `image:` and serves any container honoring the health contract |
 | `image` | image ref | custom-runtime container (OCR wrappers etc.) |
 | `engine_dialect` | `openai-chat` (default) \| `anthropic-messages` \| `openai-responses` | the wire dialect the engine itself speaks. All three caller surfaces are served whatever it is; the matching one is proxied untouched, the others translate and report what the translation dropped in `X-LLMOps-Compat-Loss` and `llmops_dialect_loss_total` |
-| `load` | `nvme-cache` (default) \| `s3-stream` | staged via node NVMe, or vLLM-only direct S3 streaming |
+| `deploy` | `k8s` (default) \| `bare-metal` | which deploy artifact the model owns: `deploy/<name>/lws.yaml` or `deploy/<name>/<name>.service`. Never both |
+| `load` | `nvme-cache` (default) \| `s3-stream` \| `local` | staged via node NVMe, vLLM-only direct S3 streaming, or verified in place on the host's disk with no bucket (`s3_prefix` must then be empty) |
+| `speculators` | map of name → `{hf_repo, revision, s3_prefix, license, license_note, args}` | draft-model configurations the model offers; `llmops serve --speculator <name>` selects one. An entry naming an `hf_repo` is a separately published draft head and must pin a revision and state its own license — it is frozen and verified like primary weights. An entry with only `args` selects a head inside the target checkpoint. The draft path is never written here: it resolves to `<cache-root>/<hf_repo>/<revision>` at launch. These `args` are appended **after** the model's own, so they override |
+| `default_speculator` | a `speculators` key \| `none` | which head runs when the operator names none. Required whenever `speculators` is set |
 | `gpu` | `{type, count, nodes}` | resource shape; must match the LWS manifest (CI-checked) |
 | `context_max` | int | documented context config; pair with the KV-cache args it needs |
 | `args` | list, verbatim | engine CLI flags — parallelism (`--tp-size`), parsers (`--tool-call-parser`), quantization, KV dtype. Per-model required flags are enforced (MiniMax `--block-size=128`; Kimi-K3 and V4-Flash-0731 `--trust-remote-code`), as are the DSpark constraints: with `--speculative-algorithm DSPARK`, a separate `--speculative-draft-model-path`, `--pp-size` > 1, or DP attention are rejected |
@@ -171,6 +240,7 @@ only carries model-specific flags.
 | `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, and all three caller surfaces: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`) |
 | `--engine-port` | 30000 | engine's internal port |
 | `--cache-root` | `/cache` | NVMe cache mount; keyed by repo+revision, flock-shared across pods on a node |
+| `--speculator` | the manifest's `default_speculator` | which draft head to serve with; `none` disables speculation. Resolved before any weights are touched, and reported on every response as `X-LLMOps-Speculator` |
 | `LLMOPS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |
 | `LLMOPS_ENGINE_HEALTH_PATH` | `/health` | engine health endpoint, for engines that differ |
 
