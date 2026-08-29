@@ -197,20 +197,38 @@ question", because the reference runs a model-specific container tag
 image. Both concerns are gone, verified 2026-08-29:
 
 - **SGLang installs from PyPI on this architecture.** `sglang==0.5.18`
-  and `sglang-kernel==0.4.6.post1` both resolve for aarch64.
-- **0.5.18 carries all three algorithms natively.** `DFLASH`, `DSPARK`
-  and `EAGLE` are in its `SpeculativeAlgorithm` enum. DFlash2 merged
-  upstream on 2026-08-19 and 0.5.18 was released on 2026-08-21; the
-  derived image the reference builds predates that release.
+  and `sglang-kernel==0.4.6.post1` both resolve and install for aarch64.
+- **0.5.18 carries all three algorithms natively.** Asked on the box,
+  the installed build reports `DFLASH, DSPARK, EAGLE, EAGLE3,
+  FROZEN_KV_MTP, NGRAM, NONE, STANDALONE`. DFlash2 merged upstream on
+  2026-08-19 and 0.5.18 was released on 2026-08-21, so the derived image
+  the reference builds predates that release rather than being required
+  by it.
 
 So this runs `deploy: bare-metal` like [[022-model-qwen3.8-27b]], with
 no container on a box that has no cluster.
 
-**One condition.** Installing SGLang into the venv currently serving
-022 downgrades `transformers` 5.16.1 → 5.12.1 and `xgrammar`, which
-breaks vLLM. The two engines need **separate virtualenvs**, which
-[[020-bare-metal-packaging]]'s single-venv install model does not
-describe. That is an amendment to 020, recorded there.
+**One condition, now measured.** SGLang lives in its own virtualenv
+because installing it beside the vLLM serving 022 downgrades
+`transformers` 5.16.1 → 5.12.1 and `xgrammar`. Both environments exist
+on the box and confirm the split: `transformers` 5.12.1 in the SGLang
+env, 5.16.1 in the vLLM env, vLLM still serving. That is an amendment to
+[[020-bare-metal-packaging]]'s single-venv model, recorded there.
+
+## Measuring it needed a fix to the measurement
+
+`llmops bench` reported `chunks_per_s`, counting server-sent events.
+That equals tokens per second only when the engine emits one token per
+event, which is exactly what speculative decoding stops doing: a verify
+step commits several tokens at once. The reference's own README records
+a published figure for this model that was wrong for this reason.
+
+Bench now asks for `stream_options.include_usage` and reports
+`tokens_per_s` from the engine's own accounting, keeping `chunks_per_s`
+beside it as a transport statistic. It also records the
+`X-LLMOps-Speculator` header in the report, and refuses a run where the
+endpoint changed speculator partway through — that aggregate would
+describe two configurations at once.
 
 ## Configuration this ships with
 
@@ -252,6 +270,7 @@ tested and validating. Every package clears the 90% floor.
 | `install --speculator` | pinned into the unit; unknown names fail before writing |
 | `ps` | SPECULATOR column, read from the endpoint |
 | `X-LLMOps-Speculator`, `llmops_speculator_info` | attribution |
+| `llmops bench` | real token counts, and the speculator recorded |
 | `models/qwen3.8-27b-fast.yaml` | three speculators, pinned and licensed |
 
 **Nothing has been served yet.** The weights are not on the box, no
