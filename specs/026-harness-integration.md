@@ -117,16 +117,19 @@ eval "$(llmops endpoint --harness claude --model qwen3.8-27b)"
 Adding a fourth harness is a row. If it ever requires more than a row,
 the surfaces are wrong, not the table.
 
-### This is why 025 comes first
+### This is why 025 came first
 
-Until 025 lands, the Anthropic surface is at `/anthropic/v1/messages`
-and Claude Code's base URL needs an `/anthropic` suffix that no other
-harness wants. Building `endpoint` against that would mean writing
+Before 025, the Anthropic surface sat at `/anthropic/v1/messages` and
+Claude Code's base URL needed an `/anthropic` suffix that no other
+harness wants. Building `endpoint` against that would have meant writing
 per-model surface derivation, shipping it, and deleting it a week later
-when the paths unify.
+when the paths unified.
 
 **026 depends on 025 rather than working around it.** The dependency is
-the design: the translator layer is what makes this a table.
+the design: the translator layer is what makes this a table. 025 has
+since landed, every model serves all three surfaces on one port, and the
+base URL in every row below is the endpoint's own — no suffix, no
+per-model derivation.
 
 ### Auth: there is none, and that should be visible
 
