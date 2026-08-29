@@ -79,16 +79,37 @@ is seven now, and the update below says what that changed.)
 
 ## Version pins
 
-Three images, not two: Kimi-K3 ships in a CUDA 13 branch build, and the
-shared SGLang image cannot substitute for it in either direction.
+Pins come in two kinds, and conflating them is how they drift apart.
+
+**Container pins** — three images, not two, because Kimi-K3 ships in a
+CUDA 13 branch build the shared SGLang image cannot substitute for in
+either direction. These serve the k8s fleet.
 
 | Image | Pin | Serves | Floor that set it |
 |---|---|---|---|
 | `Dockerfile.sglang` default | `lmsysorg/sglang:v0.5.16-cu129` | K2.7-Code, GLM-5.2, MiniMax-M3, V4-Pro, V4-Flash-0731 | V4-Flash DSpark ≥0.5.16 ([[017-model-deepseek-v4-flash-0731]]) |
 | `Dockerfile.sglang` K3 build | `lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64` (CUDA 13, r580+ driver, amd64-only) | Kimi-K3 only | [[018-model-kimi-k3]] AC4 |
-| `Dockerfile.vllm` | `vllm/vllm-openai:v0.28.0` | Qwen3.8-27B | sm_120 kernels for GB10 ([[019-gb10-serving-target]]) |
+| `Dockerfile.vllm` | `vllm/vllm-openai:v0.28.0` | *no model today* | sm_120 kernels, measured on GB10 ([[019-gb10-serving-target]]) |
 
-Pins live in the Dockerfiles ([[003-serving-runtime]]); bump
+**Host-installed pins** — the bare-metal mode runs no container
+([[020-bare-metal-packaging]]), so a GB10 box installs its engine from
+PyPI and this repo does not manage the version. Both GB10 manifests are
+`deploy: bare-metal`, which is why neither appears in the table above.
+
+| Host engine | Version | Serves |
+|---|---|---|
+| vLLM (pip, aarch64 wheel) | `0.28.0` | `qwen3.8-27b` ([[022-model-qwen3.8-27b]]) |
+| SGLang (pip) | `0.5.18` | `qwen3.8-27b-fast` ([[027-qwen-fast-path]] AC6) |
+
+The two SGLang numbers are the thing to watch: the image pins 0.5.16 and
+the GB10 host runs 0.5.18, because 0.5.18 is where all three draft-head
+algorithms landed natively. That is a legitimate divergence — one mode
+containerizes and the other does not — and it is written here so it stays
+a decision rather than becoming a surprise. Each engine gets its own
+virtualenv on the host; vLLM and SGLang pull conflicting `transformers`
+versions.
+
+Container pins live in the Dockerfiles ([[003-serving-runtime]]); bump
 deliberately, never track latest. The first SGLang pin was
 `v0.5.15.post1-cu126`, a tag that does not exist upstream at all — a pin
 nobody has pulled is not yet a pin.
@@ -100,8 +121,9 @@ Nothing above is reversed, but two things read differently now.
 **vLLM serves the only live endpoint.** Qwen3.8-27B runs on it
 ([[022-model-qwen3.8-27b]]), because a dense 27B on one GB10 is not the
 model class this record was written about. SGLang stays primary for all
-six MoE models; "second engine" describes the fallback role for the
-fleet, not the share of endpoints running today.
+six MoE models, and takes the fast tier of that same GB10 model
+([[027-qwen-fast-path]]); "second engine" describes the fallback role
+for the fleet, not the share of endpoints running today.
 
 **A new hardware class did not need a new engine.** GB10 is arm64 with a
 single unified-memory GPU. Both pinned images publish `linux/arm64`, and
