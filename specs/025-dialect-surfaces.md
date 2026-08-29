@@ -61,6 +61,16 @@ path an unmodified Anthropic SDK requests, so pointing one at the
 endpoint's base URL just works. Nothing is deployed, so the move costs
 nothing now and would cost a coordinated change later.
 
+**It did cost something, and the cost is worth recording.**
+`e2e/local/run.sh` ([[011-local-e2e]]) called the old path in two
+places. The docs moved with the route and the script did not, so the
+local e2e's Anthropic assertions had been curling a dead path since this
+landed — found 2026-08-29. "Nothing is deployed" counted deployments and
+missed a caller: a shell script is a caller like any other, and it is
+the kind no compiler checks. Fixed, with
+`TestE2EScriptCallsOnlyServedPaths` requiring every shim path the script
+curls to be one the route table answers.
+
 **Check before landing:** that the engine does not itself serve
 `/v1/messages`, or the proxy default and this route collide. vLLM
 v0.28.0 does not, but this is a per-engine-version fact, not a law.
