@@ -22,9 +22,9 @@ dispatched_task_id: null
 ## The gap
 
 A model is serving on a host. To use it from Claude Code, Codex or
-opencode you must know its port, know which dialect path that harness
-speaks, invent an API key because there is no auth, and then write the
-config in whichever of three formats that harness happens to want.
+opencode you must know its port, invent an API key because there is no
+auth, and write the config in whichever of three formats that harness
+happens to want — under whichever of three sets of variable names.
 
 Every one of those is derivable from the manifest. None of it is
 automated, so the last mile from "we serve this" to "I am coding against
@@ -81,39 +81,52 @@ already exports. Kubernetes models are out of scope: this answers
 
 ## `endpoint --harness <name>`
 
-The three harnesses want three different shapes, so emitting "env vars"
-is not enough:
+**This is a formatting table, not dialect logic.** Once
+[[025-dialect-surfaces]] serves all three surfaces on one port, every
+harness points at the same address and picks its own path:
 
-| Harness | Dialect | Consumes | Keys |
+```
+http://host:8000/v1/chat/completions   Codex, opencode
+http://host:8000/v1/messages           Claude Code
+http://host:8000/v1/responses          anything speaking Responses
+```
+
+So `endpoint` never asks "which dialect does this model serve" — the
+answer is always "all of them". What actually differs between harnesses
+is smaller than it looks:
+
+| Harness | Consumes | Keys | Base URL |
 |---|---|---|---|
-| `claude` | Anthropic Messages | shell env | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` |
-| `codex` | OpenAI | shell env, or `~/.codex/config.toml` | `OPENAI_BASE_URL`, `OPENAI_API_KEY`; or a `model_providers` entry with `wire_api` |
-| `opencode` | OpenAI-compatible | `opencode.json` | `provider.<id>` with `@ai-sdk/openai-compatible`, `options.baseURL` |
+| `claude` | shell env | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` | `http://host:8000` |
+| `codex` | shell env, or `~/.codex/config.toml` | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `http://host:8000/v1` |
+| `opencode` | `opencode.json` | `provider.<id>` with `@ai-sdk/openai-compatible`, `options.baseURL` | `http://host:8000/v1` |
 
-Default output is whatever that harness actually reads; `--format
-env|json|toml` overrides. `env` output is `eval`-able:
+Three columns of difference: the **variable names**, the **config
+format**, and whether the base URL carries the `/v1` suffix — an SDK
+convention (the Anthropic client appends `/v1/messages` to a bare base,
+the OpenAI client appends `/chat/completions` to one ending in `/v1`),
+not a property of what we serve.
+
+Default output is whatever that harness reads; `--format env|json|toml`
+overrides. `env` output is `eval`-able:
 
 ```sh
 eval "$(llmops endpoint --harness claude --model qwen3.8-27b)"
 ```
 
-### The dialect is the point
+Adding a fourth harness is a row. If it ever requires more than a row,
+the surfaces are wrong, not the table.
 
-A harness cannot be pointed at an arbitrary base URL — it speaks one
-dialect and appends its own paths. Claude Code appends `/v1/messages`;
-Codex and opencode append `/v1/chat/completions`. So `endpoint` must
-emit a base URL whose dialect matches the harness, and that is a
-property of the model's serving surface, not of the harness.
+### This is why 025 comes first
 
-Today the Anthropic surface lives at `/anthropic/v1/messages`, so
-`ANTHROPIC_BASE_URL` gets the `/anthropic` suffix and works.
-[[025-dialect-surfaces]] moves it to `/v1/messages`, after which the
-suffix disappears. **`endpoint` must derive the path from the served
-surface rather than hardcode it**, or it will be wrong the day 025
-lands.
+Until 025 lands, the Anthropic surface is at `/anthropic/v1/messages`
+and Claude Code's base URL needs an `/anthropic` suffix that no other
+harness wants. Building `endpoint` against that would mean writing
+per-model surface derivation, shipping it, and deleting it a week later
+when the paths unify.
 
-Pointing a harness at a model whose surface it cannot speak is an error
-at `endpoint` time, with the reason — not a base URL that 404s later.
+**026 depends on 025 rather than working around it.** The dependency is
+the design: the translator layer is what makes this a table.
 
 ### Auth: there is none, and that should be visible
 
@@ -158,17 +171,15 @@ useful given the load times in [[019-gb10-serving-target]].
   a live endpoint, not by string comparison.
 - **AC4** `endpoint --format env` output is `eval`-able and sets exactly
   the variables that harness reads.
-- **AC5** The base URL is derived from the model's served surface. A
-  test pins that moving the Anthropic path (as [[025-dialect-surfaces]]
-  will) changes the emitted URL with no change to this code.
-- **AC6** A harness whose dialect the model does not serve is refused at
-  `endpoint` time, naming both dialects.
-- **AC7** `endpoint` warns on stderr that the endpoint is
+- **AC5** The per-harness difference is data, not code: adding a
+  harness is a table row, and a test asserts the emitters share one
+  code path rather than branching per harness.
+- **AC6** `endpoint` warns on stderr that the endpoint is
   unauthenticated, and the warning does not pollute `eval`-able stdout.
-- **AC8** `run` execs the harness, passes through arguments after `--`,
+- **AC7** `run` execs the harness, passes through arguments after `--`,
   and propagates its exit code. A model that is not ready produces the
   start command rather than a hang or a partial launch.
-- **AC9** An unknown harness name lists the known ones.
+- **AC8** An unknown harness name lists the known ones.
 
 ## Out of scope
 

@@ -89,9 +89,9 @@ for logprobs through Anthropic Messages is told nothing.
 026 is the last mile. A model serving on a host is not yet a model you
 are using: the port, the dialect path, the invented API key and the
 config format all have to be assembled by hand, and every one of them is
-derivable. It depends on 025 for the surface a harness can be pointed
-at, and refuses rather than guesses when a harness speaks a dialect the
-model does not serve.
+derivable. It depends on 025 rather than working around it: once every model serves
+all three surfaces on one port, `endpoint` stops being dialect routing
+and becomes a table of variable names and config formats.
 
 The jspace monitoring plane (012→015) proves end to end on the local
 Qwen3-0.6B stack before any fleet GPU is spent; 016 gates fleet-model
