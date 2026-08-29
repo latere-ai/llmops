@@ -169,9 +169,15 @@ deferral rather than the intended shape.
   modes — an existing manifest with it removed still fails.
 - **AC4** `PrepareWeights` under `load: local` returns the resolved
   directory, performs no writes inside it beyond the lock file **at
-  serve time**, and a test asserts no file is copied. The `mirror` tool
-  is the only writer of a local store, and it runs before the endpoint
-  starts, never during it.
+  serve time**, and a test asserts no file is copied. `llmops pull`,
+  `push` and `freeze` ([[024-single-cli]] collapsed the `mirror` tool
+  into them) are the only writers of a local store, and they run before
+  the endpoint starts, never during it.
+
+  [[027-qwen-fast-path]] extended this without weakening it: a
+  separately published draft head is staged through the same
+  `prepareArtifact`, so under `load: local` it is verified in place like
+  the primary weights and the same freeze guarantee covers it.
 - **AC4a** `--cache-root ~/.models` resolves against the user's home
   rather than creating a directory named `~`, since systemd does not
   expand tilde in `ExecStart`.
