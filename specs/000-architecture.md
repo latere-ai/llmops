@@ -89,9 +89,12 @@ added `ps`, `endpoint` and `run`.
   pool that does not exist yet. Hardware acquisition is out of scope
   here (infrastructure provisioning) but specs must state each model's
   exact GPU footprint.
-- The registry is ~4.4 TB across the seven manifests, not the ~2.7 TB
+- The registry is ~4.4 TB across the six mirrored repos, not the ~2.7 TB
   [[002-weights-registry]] budgeted for the first four. K3 alone
-  outweighs those four.
+  outweighs those four. The seven models above ship as eight manifests:
+  Qwen3.8-27B has a second, faster tier as its own endpoint
+  ([[027-qwen-fast-path]]), and neither is mirrored — both are
+  `load: local` on the same box.
 - The single-GPU class is a different shape, not a smaller one: one GPU,
   one memory pool shared with the CPU, and no cluster around it
   ([[019-gb10-serving-target]]). Its first constraint is memory
