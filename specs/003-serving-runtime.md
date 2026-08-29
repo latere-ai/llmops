@@ -49,7 +49,7 @@ per-tenant/policy prompts stay in Lux. Task prompts stay in the domain
 wrappers that own the task.
 
 **Dialects.** The engine's OpenAI Chat surface proxies through
-unchanged. The shim additionally serves `POST /anthropic/v1/messages`
+unchanged. The shim additionally serves `POST /v1/messages`
 (Anthropic Messages, streaming included) by translating through the
 shared `latere.ai/x/pkg/llmdialect` package (anthropic frontend →
 openaichat backend) — so Claude-style callers can hit a model endpoint
@@ -132,7 +132,7 @@ container.
 5. Manifest validation rejects unknown fields, unpinned revisions, and
    engine/args mismatches; `runtime: custom` without `image` is rejected
    (unit tests).
-6. `POST /anthropic/v1/messages` returns a well-formed Anthropic
+6. `POST /v1/messages` returns a well-formed Anthropic
    Messages response (and SSE stream) backed by the engine's OpenAI
    endpoint; malformed requests 400, engine failures pass through
    (tests against a fake engine).

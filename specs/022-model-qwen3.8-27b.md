@@ -167,7 +167,7 @@ This is also the first manifest in the registry with
   against `deploy/qwen3.8-27b/qwen3.8-27b.service` — the bare-metal arm
   of the check, with no LWS manifest present for this model.
 - **AC2** The endpoint answers OpenAI `/v1/chat/completions` and
-  `/anthropic/v1/messages` under the manifest name `qwen3.8-27b`.
+  `/v1/messages` under the manifest name `qwen3.8-27b`.
 - **AC3** **Vision works.** An image request returns a grounded answer
   through both the OpenAI and Anthropic surfaces. The vision tower is
   part of the checkpoint, so there is no separate artifact to forget —

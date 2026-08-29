@@ -41,7 +41,7 @@ this proves the integrations the fakes stub out.
    MinIO into a local cache dir, engine launched via
    `LLMOPS_ENGINE_CMD` (mlx_lm), `/ready` flips.
 5. Assertions: `/v1/chat/completions` (non-stream + stream) returns
-   model output; `/anthropic/v1/messages` returns an Anthropic-shaped
+   model output; `/v1/messages` returns an Anthropic-shaped
    response; `/metrics` exposes `llmops_weights_load_seconds`;
    system-prompt enforcement observable in output.
    Agentic surface: reasoning content (thinking enabled per-request via

@@ -99,7 +99,7 @@ curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"kimi-k2.7-code","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
 
 # Anthropic surface (llmdialect translation)
-curl -s localhost:8000/anthropic/v1/messages -H 'Content-Type: application/json' \
+curl -s localhost:8000/v1/messages -H 'Content-Type: application/json' \
   -d '{"model":"kimi-k2.7-code","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
 
 # Metrics (engine passthrough + llmops_weights_load_seconds)
@@ -163,7 +163,7 @@ only carries model-specific flags.
 | Knob | Default | Purpose |
 |---|---|---|
 | `--manifest` | `/etc/llmops/model.yaml` | manifest path (mounted ConfigMap) |
-| `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, `/v1/*`, `/anthropic/v1/messages`) |
+| `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, `/v1/*`, `/v1/messages`) |
 | `--engine-port` | 30000 | engine's internal port |
 | `--cache-root` | `/cache` | NVMe cache mount; keyed by repo+revision, flock-shared across pods on a node |
 | `LLMOPS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |

@@ -138,7 +138,7 @@ sudo systemctl enable --now <name>.service
 ```
 
 Each model endpoint speaks OpenAI Chat natively (engine passthrough)
-and Anthropic Messages at `/anthropic/v1/messages` via the shared
+and Anthropic Messages at `/v1/messages` via the shared
 [`latere.ai/x/pkg/llmdialect`](https://github.com/latere-ai/pkg)
 translator; the Lux dialect is served by Lux itself, which embeds the
 same package.

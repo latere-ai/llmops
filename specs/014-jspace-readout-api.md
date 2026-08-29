@@ -32,7 +32,7 @@ jspace data" — proxying is never affected.
 ## Components
 
 1. **Request ids** — the shim mints a rid for every
-   `POST /v1/chat/completions` (and `/anthropic/v1/messages`) and
+   `POST /v1/chat/completions` (and `/v1/messages`) and
    returns it as the `X-Request-Id` response header. On the proxy
    path this is a `proxy.Director`/`ModifyResponse` pair; on the
    intercepted paths (`chatCompletions`, `anthropicMessages`) it is

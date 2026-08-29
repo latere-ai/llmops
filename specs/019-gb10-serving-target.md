@@ -94,7 +94,7 @@ Everything above the deploy layer is kept unchanged:
 |---|---|
 | `models/<name>.yaml` | one source of truth for model config, same schema |
 | `mirror` + `_manifest.json` | pinned revisions, per-file checksums; provenance does not need a cluster |
-| `llmops serve` | `/healthz`, `/ready`, `/metrics`, OpenAI passthrough, and the Anthropic surface at `/anthropic/v1/messages` |
+| `llmops serve` | `/healthz`, `/ready`, `/metrics`, OpenAI passthrough, and the Anthropic surface at `/v1/messages` |
 | `bench` | an HTTP client; it does not care what started the server |
 | `load: local` | [[021-local-weight-loading]], now the only sensible mode here |
 
