@@ -11,7 +11,7 @@ affects:
   - Dockerfile.sglang
 effort: large
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -55,9 +55,10 @@ to serve is the point of this repo, and upstream repos mutate.
   `tool_calls` included, not just `content`. A client that drops
   `reasoning_content` silently degrades the model.
 - Sampling fixed by the model: `temperature=1.0`, `top_p=0.95`.
-- Engines: SGLang via `lmsysorg/sglang:kimi-k3` (CUDA 13, needs an
-  **r580+ NVIDIA driver**); vLLM 0.27.0 via `vllm/vllm-openai:kimi-k3`,
-  also cu130-only. Both vendors label the K3 recipes **pre-release /
+- Engines: SGLang via `lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64`
+  (CUDA 13, needs an **r580+ NVIDIA driver**, and publishes **amd64
+  only** — unlike the two shared images, which carry arm64 as well);
+  vLLM 0.27.0 via `vllm/vllm-openai:kimi-k3`, also cu130-only. Both vendors label the K3 recipes **pre-release /
   "Final Verification In Progress"** as of today — the recipes run, but
   no serving round on final weights has landed. Every number below is a
   starting point to re-measure, not a pin.
@@ -118,6 +119,8 @@ as [[006-model-minimax-m3]] does.
 3. `deploycheck` validates `workerTemplate` — image, GPU limit, and
    presence — whenever `gpu.nodes > 1`, with a test that fails without
    the rule. Closes the gap the H200 fallback would otherwise walk into.
+   **Holds today**, alongside AC2 and AC4; those three are the built
+   part of this spec.
 4. `Dockerfile.sglang` builds `llmops-runtime-sglang-k3` from the
    pinned CUDA 13 K3 image, selected with
    `--build-arg SGLANG_IMAGE=…`; the two images differ only in their
@@ -131,10 +134,14 @@ as [[006-model-minimax-m3]] does.
    calculator against our measured average request length and record the
    value, do not guess it. Read back `max_total_num_tokens` and the
    admitted-request cap after boot.
-6. e2e suite (`make e2e-kimi-k3`): chat, streaming, tool-call round-trip
-   **with `reasoning_content` echoed back**, all three `reasoning_effort`
-   levels, an image-input request (first multimodal request in the
-   fleet), and a ≥256K-context request.
+6. e2e suite (`make e2e-kimi-k3`, the reserved `e2e-<model>` GPU release
+   gate; no such target exists yet): chat, streaming, tool-call
+   round-trip **with `reasoning_content` echoed back**, all three
+   `reasoning_effort` levels, an image-input request (the first
+   multimodal request **on the fleet** — [[022-model-qwen3.8-27b]] has
+   already served one on GB10, so the vision path through the shim is no
+   longer unproven, only untried at this scale), and a ≥256K-context
+   request.
 7. Registered in Lux as `llmops/kimi-k3` — gated on AC0. Verify Lux
    passes `reasoning_effort` through and does not strip
    `reasoning_content` from assistant turns on the way back in.
