@@ -9,7 +9,7 @@ affects:
   - internal/runtime/
 effort: small
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -71,8 +71,8 @@ engine health path becomes overridable via `LLMOPS_ENGINE_HEALTH_PATH`
 
 ## Non-goals
 
-- GPU engines, real buckets, the four production models (specs
-  004–007).
+- GPU engines, real buckets, the fleet models (specs 004–007, 017,
+  018).
 - Linux CPU variant (vLLM CPU) — welcome later; script structure
   should not preclude it.
 
@@ -100,3 +100,21 @@ Agentic extension (same day): reasoning, OpenAI tool call, tool-result
 round trip, and Anthropic tool_use translation all asserted green with
 Qwen3-0.6B — including the dialect layer mapping Anthropic `tools` /
 `tool_use` through the OpenAI engine surface.
+
+## Regression (found 2026-08-29)
+
+The script broke silently. [[025-dialect-surfaces]] moved the Anthropic
+surface from `/anthropic/v1/messages` to `/v1/messages`; the docs moved
+with it and `run.sh` did not, so step 5's Anthropic assertions had been
+curling a path the shim no longer serves. Nothing caught it because the
+script is the only caller of the shim that lives outside Go — no
+compile, and the run itself needs Docker plus Apple silicon.
+
+Fixed, and tied down: `TestE2EScriptCallsOnlyServedPaths` requires every
+`$PORT` path the script curls to be one the shim's route table answers.
+The general lesson for this spec is that a shell e2e is a caller like any
+other, and the ones a machine cannot run are exactly the ones that need a
+compile-time check against the code they call.
+
+`/v1/responses` is served by every model since 025 and is **not**
+asserted here — the remaining gap in step 5.
