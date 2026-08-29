@@ -1,6 +1,6 @@
 ---
 title: "GB10 serving target (single GPU, unified memory, bare metal)"
-status: draft
+status: built
 depends_on:
   - 003-serving-runtime.md
 affects:
@@ -10,7 +10,7 @@ affects:
   - docs/deploy.md
 effort: medium
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---

@@ -1,6 +1,6 @@
 ---
 title: "One binary: the llmops command"
-status: draft
+status: complete
 depends_on:
   - 003-serving-runtime.md
   - 020-bare-metal-packaging.md

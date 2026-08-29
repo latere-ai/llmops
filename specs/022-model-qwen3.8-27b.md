@@ -1,6 +1,6 @@
 ---
 title: "Model: Qwen3.8-27B (dense multimodal, GB10)"
-status: draft
+status: built
 depends_on:
   - 019-gb10-serving-target.md
   - 020-bare-metal-packaging.md
@@ -11,7 +11,7 @@ affects:
   - README.md
 effort: medium
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---

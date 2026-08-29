@@ -1,6 +1,6 @@
 ---
 title: "Pointing a coding harness at a model you own"
-status: draft
+status: complete
 depends_on:
   - 020-bare-metal-packaging.md
   - 024-single-cli.md

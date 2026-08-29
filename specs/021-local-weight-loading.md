@@ -1,6 +1,6 @@
 ---
 title: "Local weight loading (load: local)"
-status: draft
+status: complete
 depends_on:
   - 002-weights-registry.md
   - 003-serving-runtime.md
@@ -12,7 +12,7 @@ affects:
   - docs/deploy.md
 effort: small
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---

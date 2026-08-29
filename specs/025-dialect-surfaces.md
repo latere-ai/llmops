@@ -1,6 +1,6 @@
 ---
 title: "Every caller dialect, and an engine dialect that is declared"
-status: draft
+status: complete
 depends_on:
   - 003-serving-runtime.md
   - 009-lux-integration.md
