@@ -179,7 +179,89 @@ INT8 is the interesting middle: half the bytes for a quality cost far
 below 4-bit's, on a model with no quantization-aware training to lean
 on.
 
-## 6. Before committing to a model
+## 6. Operating a model once it is up
+
+### Restarting is not a cheap edit
+
+A manifest change means a restart, and a restart means reloading the
+weights. On this class that is **~10 minutes** for a 27B model: 39 s to
+verify 54 GB in place, then ~380 s of engine init before `/ready`.
+
+Batch manifest changes rather than iterating one flag at a time, and
+expect the endpoint to be gone for the duration — there is one GPU, so
+there is no rolling restart to hide behind.
+
+### Never pattern-match a process by a string your own command contains
+
+This bit twice in one session, in two different disguises:
+
+```sh
+pgrep -f "hf download"          # matched the ssh session running the pgrep
+pkill  -f "llmops serve"        # killed that ssh session
+```
+
+Over Tailscale SSH (and under `ssh host '<cmd>'` generally), the remote
+command line is visible in the process table — inside `tailscaled
+be-child ssh … --cmd=<your whole command>`. So a `-f` match on any
+string in your command finds *itself*. Symptoms are a download that
+looks like it is still running long after it finished, and an ssh
+session that dies mid-command with exit 255.
+
+Two fixes, both cheap:
+
+- **Put the patterns in a script file** on the host and run that. The
+  invoking command line then contains only the script's path.
+- **Kill by PID**, resolved once, never by pattern:
+
+```sh
+PID=$(pgrep -f "$PATTERN" | head -1)   # inside a script, not on the ssh line
+kill "$PID"
+```
+
+### Reasoning models put their thinking somewhere
+
+Check where before wiring a client to the output.
+
+The Qwen3.8 chat template opens `<think>` **in the prompt**, so the model
+generates already inside the block and emits only the closing tag. Raw
+`content` therefore begins mid-thought with no opening tag — nothing is
+missing, and nothing is being stripped.
+
+`--reasoning-parser=<name>` moves it to its own field, leaving `content`
+as the answer alone:
+
+```
+content   : "\n\n1\n2\n3\n4\n5"
+reasoning : "We need to respond to user: …"
+```
+
+Streaming splits the same way — deltas carry `reasoning` and `content`
+as distinct fields.
+
+**Check the field name against your engine version.** vLLM v0.28.0 calls
+it `reasoning`; other versions and other engines use
+`reasoning_content`. Guessing produces a client that silently reads
+nothing.
+
+To skip thinking entirely, the template exposes a switch:
+
+```json
+{"chat_template_kwargs": {"enable_thinking": false}}
+```
+
+Worth knowing when tokens are expensive: on a slow endpoint most of what
+you wait for is reasoning you did not ask for.
+
+### Streaming is not a nicety at low token rates
+
+At 3 tok/s, a non-streaming request shows nothing until it is finished —
+a 600-token answer is three minutes of blank terminal, which reads as a
+hang. The same request streamed feels slow but alive.
+
+Use `curl -N`, and unbuffer whatever parses it (`python3 -u`); either
+one buffering defeats the other.
+
+## 7. Before committing to a model
 
 1. **Read `config.json`.** Architecture string, layer types, head
    geometry. The name tells you nothing — Qwen3.8-27B declares
