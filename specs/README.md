@@ -65,8 +65,9 @@ model spec's deliverable is a *served endpoint*, and none of them has
 one. The weights are not mirrored, nothing runs on a GPU node, and
 nothing is registered in Lux. One criterion of six holds, so `draft` is
 the honest reading and the checked-in artifacts are preparation rather
-than product. The same is true of 008, which no `kustomize` invocation
-anywhere in the repo exercises, and 009, which has no code at all.
+than product. The same is true of 008, whose deploy artifacts CI
+validates but whose DaemonSet, PodMonitor and first `/ready` on a GPU
+node do not exist, and 009, which has no code at all.
 
 022 is the one model spec that is not draft, because it is the one that
 serves.
