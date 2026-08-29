@@ -110,6 +110,17 @@ The 0.80 ceiling is itself derived rather than measured
 ([[019-gb10-serving-target]] AC3a). If measurement raises it, this table
 is recomputed and the larger quants may return.
 
+**Offload is not the escape hatch it would be elsewhere.** The obvious
+response to "104 GB does not fit in 102 GB" is to keep part of the model
+in host RAM. On a discrete GPU that works. On this class it does
+nothing: CPU and GPU share one pool, so moving a tensor between them
+moves nothing and the requirement is unchanged.
+
+That makes a unified-memory box *worse* than a discrete GPU of the same
+stated capacity for any model whose sizing depends on offload — the
+opposite of the intuition. Everything in the table above must be
+resident, and no configuration flag changes that.
+
 ## Quantization decision
 
 **Deferred to measurement — this spec does not pin a quant.**
@@ -130,11 +141,24 @@ vLLM's GGUF support covers the imatrix types (IQ1_M, IQ1_S,
 IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, IQ4_XS, IQ4_NL) and the k-quants
 (Q2_K through Q6_K), so both configurations are expressible.
 
+**The architecture itself is supported.** vLLM v0.28.0's registry lists
+`DeepseekV4ForCausalLM` and `DeepSeekV4MTPModel`, verified on the
+installed engine. So the base checkpoint is a known quantity and only
+the GGUF path is in question.
+
 **The risk is coverage, not format.** vLLM supporting a quantization
-*type* is not the same as vLLM running a 304B MoE with this
-architecture from GGUF, and its GGUF path is less exercised than
-llama.cpp's. This is the single thing most likely to sink the spec, so
-it is AC1.
+*type* is not the same as vLLM running a 304B MoE from GGUF, and its
+GGUF path is less exercised than llama.cpp's. This is the single thing
+most likely to sink the spec, so it is AC1.
+
+**Engine version gates architecture support, and a pin can be behind.**
+Qwen3.8-Flash-Next is the cautionary case: its architecture is supported
+by vLLM, but only from 0.29.0, so the 0.28.0 we pin rejects it outright
+with `Model architectures [...] are not supported for now`. That error
+means "your engine is older than this model", not "this cannot work" —
+the two are easy to confuse and lead to opposite decisions. Before
+concluding a checkpoint is unservable, check the vendor's recipe for a
+minimum engine version.
 
 Speculative decoding is not planned here — the draft head does not fit
 the budget. If a measured ceiling later makes room, the path is vLLM's

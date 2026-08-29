@@ -91,7 +91,7 @@ print("%.0f GB/s" % (n*2*2 / (time.perf_counter()-t0) / 1e9))  # read + write
 
 ## 3. Unified memory changes the rules
 
-On a part where CPU and GPU share one pool (GB10 and similar), three
+On a part where CPU and GPU share one pool (GB10 and similar), four
 things differ from a discrete-HBM node, and each has bitten us:
 
 - **A memory *fraction* is taken from the operating system's memory
@@ -104,6 +104,33 @@ things differ from a discrete-HBM node, and each has bitten us:
 - **`nvidia-smi` reports no device memory** on this class — `[N/A]` for
   total, free and used. Read host `/proc/meminfo` instead. Anything that
   sizes a cache from device-memory queries reads zero.
+- **CPU offload buys nothing, and the saving it advertises is a
+  mirage.** This is the least obvious of the four.
+
+### Why "offload to host RAM" evaporates here
+
+A common trick for a model that will not fit is to keep part of it in
+host RAM: an embedding table, cold experts, whatever is touched least.
+On a discrete GPU that is a real saving, because host RAM is a second,
+separate pool.
+
+On unified memory there is no second pool. Host RAM *is* GPU memory, so
+moving a tensor from one to the other moves nothing, and the requirement
+is the whole checkpoint either way.
+
+Qwen3.8-Flash-Next is the worked example. Its vLLM recipe says:
+
+> Host RAM: at least 51 GB for N-gram embedding offload
+
+On a discrete GPU that turns a 172.8 GiB FP8 checkpoint into ~122 GiB of
+GPU residency plus 51 GB of host RAM. On a 128 GB unified box it stays
+172.8 GiB against 128 GB, and does not fit.
+
+**So a unified-memory part is *worse* than a discrete GPU of the same
+stated capacity for any model whose plan depends on offload** — the
+opposite of the intuition that sharing a pool is more flexible. When a
+model's sizing guidance mentions host RAM as a separate budget, add the
+two numbers together before deciding it fits.
 
 ## 4. The lab box: measured
 
@@ -134,9 +161,30 @@ it. `bytes/token` uses *active* parameters at the serving precision.
 |---|---|---|---|---|---|---|
 | Kimi K3 | 2.8T | 104B | ~1.4 TB @ 4-bit | **no**, 14x over | — | — |
 | DeepSeek V4 Pro | 1.6T | 49B | 1.6 TB @ FP8 | **no**, 16x over | — | — |
-| Qwen3.8-Flash-Next | 125B (+55B) | 6B | 360 GB @ BF16 | **no**, 3.5x over | — | — |
+| Qwen3.8-Flash-Next | 125B (+55B) | 6B | 185 GB @ FP8 | **no**, 1.4x over | ~3 GB | — |
 | DeepSeek V4 Flash | 304B | 13B | 90.9 GB @ IQ2_M | tight, yes | ~4 GB | high — see below |
 | **Qwen3.8-27B** | 27B dense | 27B | 54 GB @ BF16 | **yes**, comfortably | **54 GB** | **3.0 measured** |
+
+### Qwen3.8-Flash-Next: two separate blocks, and only one is hard
+
+Worth separating, because they lead to different decisions.
+
+**The engine version is soft.** The architecture
+(`Qwen4ExpForConditionalGeneration`) is supported by vLLM from **0.29.0**;
+the 0.28.0 we pin rejects it with `Model architectures [...] are not
+supported for now`. That message reads like "impossible" and means "your
+engine is older than this model". A version bump fixes it.
+
+**The memory is hard.** The official FP8 checkpoint is 172.8 GiB and its
+recipe states a minimum of two GB300s. The BF16 one is 335 GiB. Neither
+fits 128 GB, and the recipe's "51 GB host RAM for N-gram embedding
+offload" — which would leave ~122 GiB resident on a discrete GPU — saves
+nothing here, for the reason in section 3.
+
+Note the `bytes/token` column: **~3 GB** at FP8 for 6B active. If a
+sub-4-bit quantization ever appears, this is the fastest model in the
+table by a wide margin, and the only thing standing between it and this
+box is capacity.
 
 ### What this table shows that the individual decisions did not
 
