@@ -29,10 +29,10 @@ builds and pushes `linux/amd64` images (default registry
 `ghcr.io/latere-ai`; the image *names* are fixed, the registry prefix is
 yours):
 
-- `llmops-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](../specs/001-inference-engine-selection.md)) + `runtime` entrypoint
+- `llmops-runtime-sglang` — SGLang engine (pinned; see the [engine decision record](../specs/001-inference-engine-selection.md)) + the `llmops serve` entrypoint
 - `llmops-runtime-sglang-k3` — Kimi-K3-capable SGLang (CUDA 13, r580+ driver). Separate image because that driver requirement should not reach the h200/b200 pools
-- `llmops-runtime-vllm` — vLLM engine + `runtime` entrypoint (also the `load: s3-stream` path)
-- `llmops-mirror` — `mirror` CLI + `hf` + `s5cmd`, for the weight-freeze Job
+- `llmops-runtime-vllm` — vLLM engine + the `llmops serve` entrypoint (also the `load: s3-stream` path)
+- `llmops-mirror` — the `llmops` binary + `hf` + `s5cmd`, for the weight-freeze Job
 
 Engine versions are pinned in the Dockerfiles — bump them deliberately,
 never `latest`. After a release, update the image references in
