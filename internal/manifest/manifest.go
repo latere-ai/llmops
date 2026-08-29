@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -109,6 +110,45 @@ type SystemPrompt struct {
 	Text string `yaml:"text"`
 }
 
+// SpeculatorNone selects no speculative decoding. It is a reserved name
+// rather than an empty string so that turning speculation off is
+// something a caller states, and so `--speculator none` on the command
+// line reads the same as `default_speculator: none` in the file.
+//
+// Serving without speculation is a measurement the fast path needs, not
+// an edge case: it separates what quantization costs in quality from
+// what speculation adds in throughput (specs/027).
+const SpeculatorNone = "none"
+
+// Speculator is one draft-model configuration a manifest offers.
+//
+// Which speculative algorithm wins is workload-dependent — on this
+// class DSpark leads on code and DFlash2 on prose, by a margin wide
+// enough that choosing one at author time would be choosing a workload
+// on the operator's behalf. So a manifest offers a set, and the choice
+// is made when the model is started (specs/027).
+//
+// A draft head lives in one of two places. Some checkpoints carry their
+// own, in which case Args alone select it (specs/017). Others are
+// separately published repos, and those are frozen and verified exactly
+// like primary weights: pinned revision, own license. That second kind
+// is why this is a struct rather than a list of flags — a third-party
+// head under a different license than the base model is not something
+// an argument string can state.
+type Speculator struct {
+	HFRepo      string   `yaml:"hf_repo,omitempty"`
+	Revision    string   `yaml:"revision,omitempty"`
+	S3Prefix    string   `yaml:"s3_prefix,omitempty"`
+	License     string   `yaml:"license,omitempty"`
+	LicenseNote string   `yaml:"license_note,omitempty"`
+	Args        []string `yaml:"args"`
+}
+
+// SeparateHead reports whether the draft weights are a repo of their
+// own rather than part of the target checkpoint. It decides whether
+// serving has a second artifact to prepare and verify.
+func (s Speculator) SeparateHead() bool { return s.HFRepo != "" }
+
 // Manifest is one models/<name>.yaml.
 type Manifest struct {
 	Name          string        `yaml:"name"`
@@ -127,6 +167,15 @@ type Manifest struct {
 	ContextMax    int           `yaml:"context_max"`
 	Args          []string      `yaml:"args,omitempty"`
 	SystemPrompt  *SystemPrompt `yaml:"system_prompt,omitempty"`
+
+	// Speculators are the draft-model configurations this model offers,
+	// keyed by the name `llmops serve --speculator` selects.
+	Speculators map[string]Speculator `yaml:"speculators,omitempty"`
+	// DefaultSpeculator is the one used when the operator names none.
+	// Required whenever Speculators is non-empty, and allowed to be
+	// SpeculatorNone: which draft head runs by default changes both
+	// throughput and output, so it is never left implicit.
+	DefaultSpeculator string `yaml:"default_speculator,omitempty"`
 }
 
 var (
@@ -321,7 +370,8 @@ func (m *Manifest) Validate() error {
 		}
 	}
 	m.validateGB10(fail)
-	m.validateDSpark(fail)
+	m.validateSpeculators(fail)
+	m.validateSpeculation(fail)
 	if sp := m.SystemPrompt; sp != nil {
 		switch sp.Mode {
 		case SystemPromptDefault, SystemPromptPrepend, SystemPromptOverride:
@@ -423,31 +473,210 @@ func (m *Manifest) validateGB10(fail func(string, ...any)) {
 	}
 }
 
-// validateDSpark enforces the constraints SGLang places on the
-// in-checkpoint DSpark draft head (specs/017). Each one is silent at
-// launch and wrong at serve time, so the manifest is the place to catch
-// them: the draft weights come from the target checkpoint (no separate
-// path), and the algorithm requires pp_size == 1 with DP attention off.
-func (m *Manifest) validateDSpark(fail func(string, ...any)) {
-	if v, ok := m.FlagValue("--speculative-algorithm"); !ok || v != specDSpark {
+// validateSpeculators checks the speculator set itself: that a default
+// is stated, that every entry adds arguments, and that an entry naming
+// its own draft repo pins and licenses it as strictly as the primary
+// weights are pinned and licensed.
+//
+// The license rule is the one with teeth. A third-party draft head can
+// carry a different license than the base model — the published DSpark
+// head for this model does — and a manifest that omits it would ship
+// that artifact under the base model's declaration (specs/027).
+func (m *Manifest) validateSpeculators(fail func(string, ...any)) {
+	if len(m.Speculators) == 0 {
+		if m.DefaultSpeculator != "" && m.DefaultSpeculator != SpeculatorNone {
+			fail("default_speculator %q names nothing: no speculators are declared", m.DefaultSpeculator)
+		}
 		return
 	}
-	if _, ok := m.FlagValue("--speculative-draft-model-path"); ok {
-		fail("--speculative-algorithm %s draws its draft head from the target checkpoint; drop --speculative-draft-model-path", specDSpark)
+	switch d := m.DefaultSpeculator; {
+	case d == "":
+		fail("default_speculator is required when speculators are declared: which draft head runs changes both throughput and output, so it is never implicit (choose one of %s, or %q)",
+			strings.Join(m.SpeculatorNames(), ", "), SpeculatorNone)
+	case d == SpeculatorNone:
+	default:
+		if _, ok := m.Speculators[d]; !ok {
+			fail("default_speculator %q is not a declared speculator (have %s)", d, strings.Join(m.SpeculatorNames(), ", "))
+		}
 	}
-	if v, ok := m.FlagValue("--pp-size"); ok && v != "1" {
-		fail("--speculative-algorithm %s requires --pp-size 1 (got %q)", specDSpark, v)
-	}
-	if _, ok := m.FlagValue("--enable-dp-attention"); ok {
-		fail("--speculative-algorithm %s is incompatible with --enable-dp-attention", specDSpark)
+
+	for _, name := range m.SpeculatorNames() {
+		sp := m.Speculators[name]
+		switch {
+		case name == SpeculatorNone:
+			fail("speculator %q is reserved for serving without speculation", SpeculatorNone)
+		case !nameRe.MatchString(name):
+			fail("speculator name %q must match %s", name, nameRe)
+		}
+		if len(sp.Args) == 0 {
+			fail("speculator %q must state args: an entry that adds no flags selects nothing", name)
+		}
+		if !sp.SeparateHead() {
+			// An in-checkpoint head is covered by the model's own
+			// revision and license, so restating them here would be a
+			// second source of truth for the same artifact.
+			switch {
+			case sp.Revision != "":
+				fail("speculator %q sets revision without hf_repo: an in-checkpoint head is pinned by the model's own revision", name)
+			case sp.License != "":
+				fail("speculator %q sets license without hf_repo: an in-checkpoint head carries the model's own license", name)
+			case sp.S3Prefix != "":
+				fail("speculator %q sets s3_prefix without hf_repo", name)
+			}
+			continue
+		}
+		if !hfRepoRe.MatchString(sp.HFRepo) {
+			fail("speculator %q hf_repo %q must be <org>/<name>", name, sp.HFRepo)
+		}
+		if !revisionRe.MatchString(sp.Revision) {
+			fail("speculator %q revision %q must be a pinned 40-hex commit SHA", name, sp.Revision)
+		}
+		if sp.License == "" {
+			fail("speculator %q must state license: a separately published draft head is its own artifact and may not share the base model's terms", name)
+		}
+		if err := sp.validateWeightSource(m.Load); err != nil {
+			fail("speculator %q: %v", name, err)
+		}
 	}
 }
 
-// FlagValue returns the value args give to flag and whether flag is
+// validateWeightSource applies the model's load mode to a draft head.
+//
+// s3-stream is rejected rather than inherited: the engine takes a draft
+// checkpoint as a filesystem path, so a head that is only in a bucket
+// has nothing to hand it. Such a model must stage its head with
+// nvme-cache even though its primary weights stream.
+func (s Speculator) validateWeightSource(load string) error {
+	switch load {
+	case LoadLocal:
+		if s.S3Prefix != "" {
+			return fmt.Errorf("load: local reads from the weights root, so s3_prefix must be empty")
+		}
+		return nil
+	case LoadS3Stream:
+		return fmt.Errorf("a draft head is loaded from a path, not streamed; give it s3_prefix and serve the model with load: nvme-cache")
+	}
+	rest, ok := strings.CutPrefix(s.S3Prefix, "s3://")
+	if !ok {
+		return fmt.Errorf("s3_prefix %q must start with s3://", s.S3Prefix)
+	}
+	bucket, key, ok := strings.Cut(rest, "/")
+	if !ok || bucket == "" {
+		return fmt.Errorf("s3_prefix %q must include a bucket", s.S3Prefix)
+	}
+	if want := s.HFRepo + "/" + s.Revision + "/"; key != want {
+		return fmt.Errorf("s3_prefix key %q must be %q (hf_repo/revision/)", key, want)
+	}
+	return nil
+}
+
+// draftPathFlag is the SGLang flag naming a separate draft checkpoint.
+// llmops always supplies it, never the manifest — see validateDSpark.
+const draftPathFlag = "--speculative-draft-model-path"
+
+// validateSpeculation checks every way this model can be started: its
+// bare arguments, and its arguments combined with each speculator it
+// offers. A rule that held for the default and broke for one speculator
+// would surface only when someone selected that one.
+func (m *Manifest) validateSpeculation(fail func(string, ...any)) {
+	validateDSpark(m.Args, false, "", fail)
+	for _, name := range m.SpeculatorNames() {
+		sp := m.Speculators[name]
+		validateDSpark(append(slices.Clone(m.Args), sp.Args...), sp.SeparateHead(), name, fail)
+	}
+}
+
+// validateDSpark enforces the constraints SGLang places on the DSpark
+// algorithm. Each is silent at launch and wrong at serve time, so the
+// manifest is where they have to be caught: the algorithm requires
+// pp_size == 1 with DP attention off, and the draft weights must come
+// from wherever the manifest says they do and nowhere else.
+//
+// Where the head lives is a property of the checkpoint, not of the
+// algorithm. DeepSeek publishes one inside the target checkpoint, so
+// there is no path to give (specs/017); the Qwen head is a separately
+// published repo, so there is (specs/027). Both are DSpark. Keying this
+// rule on the algorithm name alone is what made the first version of it
+// reject the second case.
+//
+// Either way the manifest never writes the path itself. It resolves to
+// <cache-root>/<hf_repo>/<revision>, and the root belongs to the host —
+// the same reason primary weights name no directory (specs/021).
+func validateDSpark(args []string, separateHead bool, spec string, fail func(string, ...any)) {
+	if v, ok := flagValue(args, "--speculative-algorithm"); !ok || v != specDSpark {
+		return
+	}
+	where := ""
+	if spec != "" {
+		where = fmt.Sprintf("speculator %q: ", spec)
+	}
+	if _, ok := flagValue(args, draftPathFlag); ok {
+		if separateHead {
+			fail("%s%s is derived from the speculator's hf_repo at serve time; drop it", where, draftPathFlag)
+		} else {
+			fail("%s--speculative-algorithm %s draws its draft head from the target checkpoint; drop %s",
+				where, specDSpark, draftPathFlag)
+		}
+	}
+	if v, ok := flagValue(args, "--pp-size"); ok && v != "1" {
+		fail("%s--speculative-algorithm %s requires --pp-size 1 (got %q)", where, specDSpark, v)
+	}
+	if _, ok := flagValue(args, "--enable-dp-attention"); ok {
+		fail("%s--speculative-algorithm %s is incompatible with --enable-dp-attention", where, specDSpark)
+	}
+}
+
+// SpeculatorNames lists the speculators this model offers, sorted.
+func (m *Manifest) SpeculatorNames() []string {
+	names := make([]string, 0, len(m.Speculators))
+	for n := range m.Speculators {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Speculation is the resolved draft-model choice for one serve: the
+// name to report, the arguments to add, and the artifact to prepare.
+type Speculation struct {
+	Name       string // SpeculatorNone when speculation is off
+	Speculator Speculator
+}
+
+// Off reports whether this resolves to serving without speculation.
+func (s Speculation) Off() bool { return s.Name == SpeculatorNone }
+
+// ResolveSpeculator turns the operator's `--speculator` choice into the
+// configuration to serve. An empty name takes the manifest's default,
+// so the flag is optional and the file still decides.
+func (m *Manifest) ResolveSpeculator(name string) (Speculation, error) {
+	if name == "" {
+		name = cmp.Or(m.DefaultSpeculator, SpeculatorNone)
+	}
+	if name == SpeculatorNone {
+		return Speculation{Name: SpeculatorNone}, nil
+	}
+	sp, ok := m.Speculators[name]
+	if !ok {
+		if len(m.Speculators) == 0 {
+			return Speculation{}, fmt.Errorf("model %s offers no speculators, so --speculator must be %q", m.Name, SpeculatorNone)
+		}
+		return Speculation{}, fmt.Errorf("model %s has no speculator %q: choose one of %s, or %q",
+			m.Name, name, strings.Join(m.SpeculatorNames(), ", "), SpeculatorNone)
+	}
+	return Speculation{Name: name, Speculator: sp}, nil
+}
+
+// FlagValue returns the value the manifest's own args give to flag.
+func (m *Manifest) FlagValue(flag string) (string, bool) {
+	return flagValue(m.Args, flag)
+}
+
+// flagValue returns the value args give to flag and whether flag is
 // present at all. Both "--k=v" and "--k v" forms resolve; a valueless
 // flag ("--k", or "--k" followed by another flag) reports "", true.
-func (m *Manifest) FlagValue(flag string) (string, bool) {
-	for i, a := range m.Args {
+func flagValue(args []string, flag string) (string, bool) {
+	for i, a := range args {
 		if k, v, ok := strings.Cut(a, "="); ok {
 			if k == flag {
 				return v, true
@@ -457,8 +686,8 @@ func (m *Manifest) FlagValue(flag string) (string, bool) {
 		if a != flag {
 			continue
 		}
-		if i+1 < len(m.Args) && !strings.HasPrefix(m.Args[i+1], "-") {
-			return m.Args[i+1], true
+		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			return args[i+1], true
 		}
 		return "", true
 	}
