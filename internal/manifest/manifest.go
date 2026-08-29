@@ -456,6 +456,11 @@ func (m *Manifest) validateGB10(fail func(string, ...any)) {
 		checkFraction(append(slices.Clone(m.Args), m.Speculators[name].Args...), frac, name, fail)
 	}
 
+	// Presence only, and deliberately against the base args alone: the
+	// context bound belongs to the model, not to a draft head. A
+	// speculator supplying one the model omitted would still fail here,
+	// which is the safe direction — unlike the fraction above, no
+	// speculator can weaken this by overriding it.
 	if ctx := contextFlags[m.Runtime]; ctx != "" {
 		if _, present := m.FlagValue(ctx); !present {
 			fail("gpu.type %s requires %s so the kv cache size is stated rather than inherited from an engine default",

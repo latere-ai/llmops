@@ -44,6 +44,7 @@ context_max: 262144
 # (specs/019 AC3a), so raising it is specs/027 AC5 — a measurement,
 # not a value copied from someone else's box.
 args:
+  - --trust-remote-code
   - --context-length=262144
   - --mem-fraction-static=0.80
   - --attention-backend=flashinfer
@@ -51,7 +52,12 @@ args:
   - --chunked-prefill-size=8192
   - --mamba-ssm-dtype=bfloat16
   - --mamba-radix-cache-strategy=extra_buffer_lazy
+  # This endpoint exists to be coded against, so it parses tool calls
+  # as well as reasoning. 022 needs neither: vLLM's qwen3 path handles
+  # its own, and that endpoint is the quality reference, not the one
+  # agents drive.
   - --reasoning-parser=qwen3
+  - --tool-call-parser=qwen3_coder
 
 # Which draft head wins depends on what is being generated, so the
 # choice is the operator's at start time:
@@ -108,6 +114,9 @@ speculators:
   # The checkpoint's own multi-token-prediction head: no download, no
   # third-party license, and the weakest of the three on code. It is
   # here because it is the fallback that needs nothing fetched.
+  #
+  # EAGLE with no draft path is what selects it — verified against the
+  # reference's launch line, not inferred from the algorithm name.
   #
   # topk 1 is a linear chain, which requires num-draft-tokens to be
   # num-steps + 1. 3/1/4 is the measured peak on this hardware.
