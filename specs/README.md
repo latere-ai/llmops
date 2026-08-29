@@ -1,6 +1,7 @@
 # llmops specs
 
-Design specs for owning the open-weights inference layer end to end.
+Design records for llmops: how open-weight models are frozen, served,
+deployed and measured, and why each choice was made that way.
 Start with [000-architecture](000-architecture.md) (umbrella), then read in
 number order — the numbering is the implementation order.
 
