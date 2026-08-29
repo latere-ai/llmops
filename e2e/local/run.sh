@@ -107,7 +107,7 @@ SSE=$(curl -fsS -N --max-time 120 "http://127.0.0.1:$PORT/v1/chat/completions" \
 echo "$SSE" | grep -q "^data:" || fail "no SSE stream: $SSE"
 
 say "assert: Anthropic Messages surface"
-ARESP=$(curl -fsS "http://127.0.0.1:$PORT/anthropic/v1/messages" \
+ARESP=$(curl -fsS "http://127.0.0.1:$PORT/v1/messages" \
   -H 'Content-Type: application/json' \
   -d '{"model":"default_model","max_tokens":64,"messages":[{"role":"user","content":"Say hello."}]}')
 echo "$ARESP" | grep -q '"type":"message"' || fail "not an anthropic message: $ARESP"
@@ -147,7 +147,7 @@ echo "$FRESP" | grep -qi "22\|sunny" || fail "tool result not used in answer: $F
 say "assert: Anthropic tools translate to tool_use"
 ATOOL_OK=""
 for _ in 1 2 3; do
-  ATRESP=$(curl -fsS "http://127.0.0.1:$PORT/anthropic/v1/messages" \
+  ATRESP=$(curl -fsS "http://127.0.0.1:$PORT/v1/messages" \
     -H 'Content-Type: application/json' \
     -d '{"model":"default_model","max_tokens":128,"temperature":0.1,
          "tools":[{"name":"get_weather","description":"Get current weather for a city","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],
