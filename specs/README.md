@@ -136,7 +136,9 @@ measure 3.0 tok/s; the same model on the same box has been measured at
 **51.5** with 4-bit weights and a draft head. The quality case for BF16
 still stands — it now costs a measured 17x rather than the 4x estimated,
 which is high enough that the answer may change. Both endpoints stay,
-named by precision, for the reason 023 gives. It also corrects a formula:
+for the reason 023 gives — though 027 named its own `qwen3.8-27b-fast`
+where 023's rule asks for the precision, an inconsistency 023 now
+records. It also corrects a formula:
 throughput is bandwidth over bytes-per-token *times accepted tokens per
 step*, which is why the same model measures 51.5 on code and 18.3 on
 prose.
