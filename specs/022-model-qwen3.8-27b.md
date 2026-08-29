@@ -265,7 +265,9 @@ BF16 here is ~17x rather than the 4x a bytes-per-token argument alone
 predicts. The missing term is speculative decoding — bandwidth over
 bytes-per-token *times accepted tokens per step* — which is also why the
 same configuration measures 51.5 on code and 18.3 on prose. The two
-endpoints coexist, named by precision; this one is not replaced.
+endpoints coexist and this one is not replaced; the fast one is named
+`qwen3.8-27b-fast`, which [[023-model-deepseek-v4-flash-0731-gb10]]
+notes is a different naming convention from the one it adopts.
 
 ### Acceptance criteria
 

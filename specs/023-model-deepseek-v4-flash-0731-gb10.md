@@ -12,7 +12,7 @@ affects:
   - README.md
 effort: medium
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -42,6 +42,21 @@ deepseek-v4-flash-0731-q2    ~2 bit, 1x GB10    (this spec)
 Named for the quantization, not the hardware: the GPU is an
 implementation detail a caller does not have; the precision changes the
 answers they get.
+
+**The separate-endpoint half of this decision is now precedent rather
+than proposal.** [[027-qwen-fast-path]] hit the same situation — a
+reduced-precision second tier of a model already served on the same box —
+and resolved it the same way: two manifests, two endpoints, one chosen
+when the box starts, never routed under one id.
+
+It did **not** follow the naming rule. 027's endpoint is
+`qwen3.8-27b-fast`, named for the speed rather than the precision, while
+this spec's is `deepseek-v4-flash-0731-q2`. Two conventions for the same
+situation is one too many, and the argument above still stands: a caller
+who reads `-fast` learns how it feels, not what changed about the
+answers. Settle it before this endpoint exists — either 027 gains a
+precision-named alias or this one adopts the outcome-named form — and
+whichever wins, both should use it.
 
 ## Gate: is this tier wanted at all?
 
