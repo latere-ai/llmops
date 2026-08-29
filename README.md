@@ -119,8 +119,10 @@ Pinned manifests with the deploy artifact each one owns, and a
 consistency check between them that runs in CI and in `llmops validate`.
 The whole pipeline is exercised end to end on a laptop.
 
-Qwen3.8-27B's weights are frozen on a GB10 host and its manifest and
-unit are checked in; the endpoint is not up yet.
+Qwen3.8-27B serves on a GB10 host, at full BF16 with no quantization,
+answering on all three dialects including vision. It is slow: **3.0
+tok/s** measured, which is what undamaged 27B weights cost on one
+unified-memory GPU. A 4-bit fast path is specced but not built.
 
 Not yet done: the multi-hundred-GB mirrors, the GPU deployments, and
 gateway registration. The per-model specs record what each one is
