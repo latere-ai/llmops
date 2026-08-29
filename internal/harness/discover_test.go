@@ -51,6 +51,8 @@ func fakeShim(t *testing.T, state string, loaded float64) *httptest.Server {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
 			fmt.Fprintln(w, state)
+		case "/v1/models":
+			fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
 		case "/metrics":
 			fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", loaded)
 		default:
@@ -171,5 +173,63 @@ func TestEndpointForUsesTheDiscoveredPort(t *testing.T) {
 	e := EndpointFor(Model{Name: "qwen", Port: 9000}, "box", "local")
 	if e.BaseURL != "http://box:9000" || e.Model != "qwen" {
 		t.Fatalf("endpoint %+v", e)
+	}
+}
+
+// TestDiscoverRejectsAPortServingAnotherModel is the bug running this
+// against a real host exposed: without a unit a model falls back to the
+// default port, so every manifest pointed at one address and whatever
+// answered there was reported as all of them.
+func TestDiscoverRejectsAPortServingAnotherModel(t *testing.T) {
+	cfg, units := t.TempDir(), t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ready":
+			fmt.Fprintln(w, "ready")
+		case "/v1/models":
+			fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)
+		default:
+			fmt.Fprintln(w, "llmops_weights_load_seconds 1")
+		}
+	}))
+	defer srv.Close()
+
+	writeInstalled(t, cfg, "qwen")
+	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
+
+	got, err := Discover(cfg, units, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].State != "down" {
+		t.Fatalf("state %q: a port serving another model was reported as this one", got[0].State)
+	}
+}
+
+// TestDiscoverTrustsAnEngineWithoutAModelList keeps the identity check
+// from becoming a requirement on the engine's API surface.
+func TestDiscoverTrustsAnEngineWithoutAModelList(t *testing.T) {
+	cfg, units := t.TempDir(), t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ready":
+			fmt.Fprintln(w, "ready")
+		case "/v1/models":
+			http.NotFound(w, r)
+		default:
+			fmt.Fprintln(w, "llmops_weights_load_seconds 5")
+		}
+	}))
+	defer srv.Close()
+
+	writeInstalled(t, cfg, "qwen")
+	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
+
+	got, err := Discover(cfg, units, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[0].Ready() {
+		t.Fatalf("state %q: an engine without /v1/models should get the benefit of the doubt", got[0].State)
 	}
 }

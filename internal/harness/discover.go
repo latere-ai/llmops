@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,7 +55,7 @@ func Discover(configDir, unitDir string, timeout time.Duration) ([]Model, error)
 			GPU:     fmt.Sprintf("%dx%s", m.GPU.Count, m.GPU.Type),
 			Port:    portFromUnit(filepath.Join(unitDir, m.Name+".service")),
 		}
-		mod.State, mod.Loaded = probe(mod.Port, timeout)
+		mod.State, mod.Loaded = probe(mod.Name, mod.Port, timeout)
 		out = append(out, mod)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -88,7 +89,13 @@ func portFromUnit(path string) int {
 // probe asks the shim what it is doing. A model that is installed but
 // not answering is reported as down rather than omitted: "configured
 // but not running" is the state an operator most needs to see.
-func probe(port int, timeout time.Duration) (state string, loaded float64) {
+//
+// It also checks *identity*. Without a unit a model falls back to the
+// default port, so several manifests can point at one address — and
+// whatever is serving there would otherwise be reported as all of them.
+// Asking the endpoint which model it serves is what makes `ps` report
+// reality rather than a coincidence of port numbers.
+func probe(name string, port int, timeout time.Duration) (state string, loaded float64) {
 	c := &http.Client{Timeout: timeout}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
@@ -105,7 +112,39 @@ func probe(port int, timeout time.Duration) (state string, loaded float64) {
 	if resp.StatusCode != http.StatusOK && state != "loading" {
 		state = "down"
 	}
+	if state == "ready" && !serves(c, base, name) {
+		// Something is up on this port, but not this model.
+		return "down", 0
+	}
 	return state, weightsLoaded(c, base)
+}
+
+// serves reports whether the endpoint is serving this model. An engine
+// that does not answer /v1/models gets the benefit of the doubt: the
+// check exists to catch a wrong model, not to demand a surface.
+func serves(c *http.Client, base, name string) bool {
+	resp, err := c.Get(base + "/v1/models")
+	if err != nil {
+		return true
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return true
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil || len(payload.Data) == 0 {
+		return true
+	}
+	for _, m := range payload.Data {
+		if m.ID == name {
+			return true
+		}
+	}
+	return false
 }
 
 // weightsLoaded pulls llmops_weights_load_seconds out of /metrics — the
