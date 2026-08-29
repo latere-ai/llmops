@@ -113,9 +113,10 @@ concrete — they add ~4 TB and serve no inference purpose.
    corruption).
 3. Non-safetensors weight files are rejected with a clear error (test).
 4. All six S3-served repos above mirrored; sizes and SHA256 manifests
-   match HF; documented in `models/*.yaml`. (Qwen3.8-27B is the seventh
-   manifest and is deliberately not here: `load: local` names no
-   `s3_prefix`, and its weights are frozen in place on the host.)
+   match HF; documented in `models/*.yaml`. (The two GB10 manifests —
+   `qwen3.8-27b` and its fast tier `qwen3.8-27b-fast` — are deliberately
+   not here: `load: local` names no `s3_prefix`, and their weights are
+   frozen in place on the host.)
 5. vLLM loads a model directly from the mirrored S3 prefix (covered in
    [[003-serving-runtime]] e2e).
 

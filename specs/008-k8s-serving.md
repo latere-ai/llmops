@@ -62,9 +62,10 @@ architecture change.
 | DeepSeek-V4-Flash-0731 | FP4+FP8 | 1x node 8x B200, TP8 ([[017-model-deepseek-v4-flash-0731]]) |
 | Kimi-K3 | MXFP4/MXFP8 | 1x node 8x B300, r580+ driver ([[018-model-kimi-k3]]) |
 
-Six models, three pools. The seventh manifest, Qwen3.8-27B, is not here:
-one GB10 GPU has nothing for a scheduler to schedule, so it takes the
-bare-metal mode ([[019-gb10-serving-target]]).
+Six models, three pools — six of the repo's eight manifests. The other
+two are the GB10 pair, `qwen3.8-27b` and `qwen3.8-27b-fast`: one GB10
+GPU has nothing for a scheduler to schedule, so they take the bare-metal
+mode ([[019-gb10-serving-target]]).
 
 ## Acceptance criteria
 
