@@ -235,6 +235,9 @@ flowchart LR
   the one-model-per-box rule.
 - **AC8** [[010-observability-bench]] records that device-memory metrics
   are absent here and that host memory is the substitute signal.
+  **Recorded 2026-08-29**, in 010's Scope 1, together with the
+  consequence for a dashboard: a DCGM panel that is empty on this pool
+  is not a healthy zero.
 
 ## Out of scope
 
