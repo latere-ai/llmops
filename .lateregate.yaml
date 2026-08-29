@@ -22,6 +22,9 @@ spec:
   require: [title, status]
   index: specs/README.md
   wikilinks: true
+  # A pipe inside a cell shifts every column after it and nothing else
+  # notices: the build passes and the spec renders.
+  tables: true
 
 hermetic:
   # The system directories, and nothing else. Naming them here is the point:
@@ -34,3 +37,14 @@ modernize:
   # fixer still exists before passing the flag, because `go fix` rejects an
   # unknown -name=false and this check would then pass silently.
   disable: [newexpr, errorsastype]
+
+depcheck:
+  # The CLI reaches two modules. That is a small footprint worth keeping: one
+  # upstream import arrives on the next `go get`, and the first symptom is
+  # otherwise a slower build.
+  packages:
+    github.com/latere-ai/llmops/cmd/llmops:
+      decision: the CLI ships as a single static binary
+      allow:
+        gopkg.in/yaml.v3: model manifests and deploy artifacts are YAML
+        latere.ai/x/pkg: the shared platform packages

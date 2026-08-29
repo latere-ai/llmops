@@ -3,7 +3,7 @@ GO ?= go
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize
+.PHONY: build test cover test-hermetic test-race validate deps spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize
 
 build:
 	$(GO) build ./...
@@ -42,8 +42,14 @@ test-race:
 # Validate all model manifests + deploy consistency (also run in `test`
 # via internal/deploycheck). The spec tree is a separate target now; see
 # spec-lint below.
-validate:
+validate: deps
 	$(GO) run ./cmd/llmops validate models/
+
+# The CLI's dependency footprint. A dependency arriving is not a failure; one
+# nobody decided on is, and the first symptom is otherwise a slower build.
+# The allowlist, whose value is the reason, lives in .lateregate.yaml.
+deps:
+	@$(GO) tool lateregate depcheck
 
 # The spec tree checks: frontmatter, the closed status vocabulary, the index
 # rows, dependency edges and wikilinks. Conventions live in .lateregate.yaml.
