@@ -10,7 +10,7 @@ affects:
   - deploy/kimi-k2.7-code/
 effort: medium
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -34,19 +34,28 @@ focus matches latere's primary workload. Thinking mode is always on.
   conclusion in the manifest).
 - Engines: SGLang ≥0.5.10 (primary), vLLM ≥0.19.1. Required parsers:
   `kimi_k2` (tool-call + reasoning). vLLM vision-encoder note:
-  `--mm-encoder-tp-mode data`.
+  `--mm-encoder-tp-mode data`. The shared SGLang image is pinned well
+  above this floor (`v0.5.16-cu129`, [[001-inference-engine-selection]]),
+  so nothing here gates on an engine bump.
 - Vendor deploy guide: `docs/deploy_guidance.md` in the HF repo.
 
 ## Acceptance criteria
 
 1. Mirrored to S3 with verified manifest ([[002-weights-registry]] AC4).
-2. `models/kimi-k2.7-code.yaml` validates; engine `sglang`, TP8,
-   `--tool-call-parser kimi_k2 --reasoning-parser kimi_k2`.
+2. `models/kimi-k2.7-code.yaml` validates; `runtime: sglang`, TP8,
+   `--tool-call-parser kimi_k2 --reasoning-parser kimi_k2`, and
+   `deploy/kimi-k2.7-code/lws.yaml` matches it — `llmops validate`
+   checks manifest and deploy artifact against each other, and CI runs
+   the same check. **Holds today**; it is the only criterion here that
+   does.
 3. Serves on one 8x H200 node via LWS; `/ready` from warm NVMe cache in
    documented time (record cold vs warm numbers).
-4. e2e test suite (runnable via `make e2e-kimi`): chat completion,
-   streaming, tool call round-trip, reasoning-content parsing, 128K-token
-   long-context request. All green.
+4. e2e test suite (runnable via `make e2e-kimi-k2.7-code`, the
+   `e2e-<model>` GPU release gate the Makefile reserves — no such target
+   exists yet): chat completion, streaming, tool call round-trip,
+   reasoning-content parsing, 128K-token long-context request. All
+   green. The name carries the full model id because
+   [[018-model-kimi-k3]] made "kimi" ambiguous.
 5. Registered in Lux and reachable with a Lux virtual key
    ([[009-lux-integration]] provides the mechanism; this spec provides the
    entry).
