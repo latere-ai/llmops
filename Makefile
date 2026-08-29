@@ -3,7 +3,7 @@ GO ?= go
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate fmt fmt-check hooks vet e2e images dist clean lint-modernize
+.PHONY: build test cover test-hermetic test-race validate spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize
 
 build:
 	$(GO) build ./...
@@ -13,11 +13,11 @@ test: vet
 
 # Coverage gate, per package rather than as a repository average: an
 # average lets a well-tested package carry an untested one and reports a
-# number nobody can act on. Exemptions live in internal/covercheck with
-# a reason attached.
+# number nobody can act on. The threshold and any exemptions, each with
+# its reason, live in .lateregate.yaml.
 cover:
 	$(GO) test ./... -coverprofile=coverage.out -coverpkg=./...
-	@$(GO) run ./internal/covercheck -profile=coverage.out
+	@$(GO) tool lateregate cover -profile=coverage.out
 
 # Run the suite without the developer's PATH.
 #
@@ -29,10 +29,10 @@ cover:
 #
 # Keeping only the Go toolchain and the system directories reproduces a
 # runner's environment closely enough to catch that class before a push.
+# The directories kept on PATH are named in .lateregate.yaml, so a test
+# that needs a system tool has to say so.
 test-hermetic:
-	@go_dir=$$(dirname $$(command -v $(GO))); \
-	echo "PATH=$$go_dir:/usr/bin:/bin"; \
-	env PATH="$$go_dir:/usr/bin:/bin" $(GO) test ./...
+	@$(GO) tool lateregate hermetic
 
 # The race detector needs cgo, which the shipped binaries do not: this is
 # about finding a race in the test harness, not about what we compile to.
@@ -40,14 +40,15 @@ test-race:
 	CGO_ENABLED=1 $(GO) test -race ./...
 
 # Validate all model manifests + deploy consistency (also run in `test`
-# via internal/deploycheck), then the spec tree that describes them.
-#
-# The spec lint exists because the index drifted: every row read `draft`
-# while five specs were built and one was serving. It had been
-# hand-edited a dozen times that day.
+# via internal/deploycheck). The spec tree is a separate target now; see
+# spec-lint below.
 validate:
 	$(GO) run ./cmd/llmops validate models/
-	$(GO) test ./internal/speclint/
+
+# The spec tree checks: frontmatter, the closed status vocabulary, the index
+# rows, dependency edges and wikilinks. Conventions live in .lateregate.yaml.
+spec-lint:
+	@$(GO) tool lateregate spec-lint
 
 # fmt formats all Go sources in place.
 fmt:
@@ -55,7 +56,7 @@ fmt:
 
 # fmt-check fails if any Go source is not gofmt-formatted.
 fmt-check:
-	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt: unformatted files:"; echo "$$out"; exit 1; fi
+	@$(GO) tool lateregate fmt-check
 
 # hooks installs the repository git hooks (pre-commit gofmt guard).
 hooks:
@@ -69,23 +70,11 @@ vet:
 # It runs the toolchain modernizers, which overlap golangci-lint's modernize
 # linter but add three it does not carry: buildtag, hostport, and the
 # go:fix inline directives. newexpr and errorsastype are off for the reasons
-# recorded in .golangci.yml.
-# Only a non-empty patch fails the target. go fix also exits non-zero when a
-# package does not type-check, which is a build error rather than a finding,
-# so stderr is dropped and the decision rests on the patch alone.
+# recorded in .golangci.yml and named in .lateregate.yaml; lateregate checks
+# each still exists, because `go fix` rejects an unknown -name=false and the
+# gate would then pass silently.
 lint-modernize:
-	@for fixer in newexpr errorsastype; do \
-		$(GO) tool fix help 2>&1 | grep -q "^    $$fixer " || { \
-			echo "go fix no longer carries the $$fixer fixer, so -$$fixer=false is rejected and this check passes silently"; \
-			exit 1; \
-		}; \
-	done
-	@patch=$$($(GO) fix -diff -newexpr=false -errorsastype=false ./... 2>/dev/null); \
-	if [ -n "$$patch" ]; then \
-		echo "$$patch"; \
-		echo "go fix: the diff above is already in the standard library; apply it with go fix"; \
-		exit 1; \
-	fi
+	@$(GO) tool lateregate modernize
 
 # CI-runnable e2e: full pull→push→verify and serve
 # serve→ready→metrics paths against fakes (no GPU, no network).

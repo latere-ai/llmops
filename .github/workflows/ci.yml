@@ -1,8 +1,18 @@
 name: ci
 
-# Every gate here runs without a GPU, without weights and without
-# credentials, because a gate that needs any of those is one nobody runs
-# before pushing. GPU serving stays a per-model release gate by hand.
+# The gates this repo runs on every push live in latere-ai/ci (which orders
+# them) and latere-ai/ci-gate (which decides what each one asserts). This file
+# is the caller.
+#
+# The pipeline probes the Makefile and runs what it finds, so a gate is turned
+# on here by adding a target, not by editing this file. Today that is:
+#
+#   required   fmt-check, test, lint-modernize
+#   optional   test-hermetic, test-race, cover, spec-lint, dist, validate
+#
+# Every one of those also runs locally, which is the point: three CI failures
+# in one day came from tests that depended on what happened to be installed on
+# the machine running them, and each passed on a laptop first.
 
 on:
   push:
@@ -13,100 +23,5 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      # Two operating systems because development happens on macOS and
-      # deployment on Linux, and that asymmetry has already cost us. A
-      # test that shelled out to `systemctl` skipped on macOS (absent)
-      # and failed on Linux (present but unprivileged); another looked a
-      # binary up on PATH and passed only on the laptop that had it.
-      # Both were found by a runner rather than by the person who wrote
-      # them.
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Format
-        run: make fmt-check
-      - name: Vet and test
-        run: make test
-      - name: Validate model manifests and deploy artifacts
-        run: make validate
-
-  hermetic:
-    name: tests without a developer PATH
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      # The same target a developer runs before pushing. That is the
-      # point: a runner-only gate tells you after the fact, and this
-      # class of bug is cheap to prevent and tedious to diagnose.
-      - name: Test with only the toolchain on PATH
-        run: make test-hermetic
-
-  race:
-    name: race detector
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Test under the race detector
-        run: make test-race
-
-  coverage:
-    name: coverage gate (per package)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      # Per package, not a repository average. The average passed at
-      # 90.4% while two packages sat below the floor.
-      - name: Measure and gate
-        run: make cover
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-profile
-          path: coverage.out
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.13.1
-      - name: Modernize
-        run: make lint-modernize
-
-  cross:
-    name: cross-compile the shipped platforms
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      # `make dist` claims static binaries for both architectures, and
-      # the bare-metal deploy mode ships them by hand. A claim in a
-      # document with no gate behind it goes stale silently.
-      - name: Build every dist platform
-        run: make dist
+  verify:
+    uses: latere-ai/ci/.github/workflows/go-verify.yml@v1

@@ -1,0 +1,36 @@
+# The per-push gate configuration for llmops. The checks themselves live in
+# latere.ai/x/ci-gate, pinned in go.mod, so every one of these runs the same
+# on a laptop as it does on a runner.
+
+cover:
+  # Per package rather than as a repository average. The average passed at
+  # 90.4% while internal/harness sat at 85.7% and internal/install at 87.8%.
+  threshold: 90.0
+  trim_prefix: github.com/latere-ai/llmops/
+  exempt: {}
+
+spec:
+  # The index drifted: on 2026-08-29 every row read `draft`, including five
+  # specs that were built, deployed and serving. It had been hand-edited a
+  # dozen times that day.
+  dir: specs
+  # Three values, and the difference is meant to be legible from the word:
+  #   draft    — nothing of it is in the product
+  #   partial  — in the product, a named criterion still open
+  #   complete — in the product, every criterion holds
+  status: [draft, partial, complete]
+  require: [title, status]
+  index: specs/README.md
+  wikilinks: true
+
+hermetic:
+  # The system directories, and nothing else. Naming them here is the point:
+  # a test that needs a system tool now says so instead of finding one on
+  # whatever PATH it happened to inherit.
+  allow: [/usr/bin, /bin]
+
+modernize:
+  # Off for the reasons recorded in .golangci.yml. lateregate verifies each
+  # fixer still exists before passing the flag, because `go fix` rejects an
+  # unknown -name=false and this check would then pass silently.
+  disable: [newexpr, errorsastype]
