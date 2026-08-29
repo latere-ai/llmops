@@ -16,16 +16,16 @@ and only three:
 | # | Spec | Status | Scope |
 |---|---|---|---|
 | 000 | [Architecture (umbrella)](000-architecture.md) | draft | Goals, planes, constraints, roadmap |
-| 001 | [Inference engine selection](001-inference-engine-selection.md) | draft | Decision record: SGLang primary, vLLM second |
-| 002 | [Frozen weights registry](002-weights-registry.md) | draft | HF → S3 mirror tool, manifests, initial ~2.7 TB set |
-| 003 | [Serving runtime](003-serving-runtime.md) | draft | Engine containers, S3/NVMe weight loading, health contract |
+| 001 | [Inference engine selection](001-inference-engine-selection.md) | complete | Decision record: SGLang primary, vLLM second |
+| 002 | [Frozen weights registry](002-weights-registry.md) | partial | HF → S3 mirror tool, manifests, initial ~2.7 TB set |
+| 003 | [Serving runtime](003-serving-runtime.md) | partial | Engine containers, S3/NVMe weight loading, health contract |
 | 004 | [Model: Kimi-K2.7-Code](004-model-kimi-k2.7-code.md) | draft | First model live (INT4, 8x H200, single node) |
 | 005 | [Model: GLM-5.2](005-model-glm-5.2.md) | draft | FP8 + expert-parallel path, 1M context |
 | 006 | [Model: MiniMax-M3](006-model-minimax-m3.md) | draft | MXFP8, sparse-attention flags, license gate |
 | 007 | [Model: DeepSeek-V4-Pro](007-model-deepseek-v4-pro.md) | draft | Largest; hardware-gated (Blackwell / H200 / 2-node) |
 | 008 | [Kubernetes GPU serving](008-k8s-serving.md) | draft | LWS deploys, NVMe prefetch cache, node prereqs |
 | 009 | [Lux integration](009-lux-integration.md) | draft | Models as Lux providers, cost tracking |
-| 010 | [Observability & bench](010-observability-bench.md) | draft | Metrics/dashboards, benchmark harness, router comparison |
+| 010 | [Observability & bench](010-observability-bench.md) | partial | Metrics/dashboards, benchmark harness, router comparison |
 | 011 | [Local full-stack e2e](011-local-e2e.md) | complete | Small model + MinIO + local engine; zero-cost pipeline proof |
 | 012 | [Lens fitting pipeline](012-lens-fitting-pipeline.md) | draft | Jacobian lens artifacts per model+revision; first Python code |
 | 013 | [In-engine jspace capture](013-inengine-capture.md) | draft | vLLM plugin + SGLang patch; on-GPU lens apply, all decode tokens |
@@ -51,9 +51,24 @@ and only three:
 | 019 | AC4 — the 26 GB host reserve behind the 0.80 memory cap is unmeasured under load, and [027](027-qwen-fast-path.md) reports someone running 0.90–0.95 on this hardware. AC7/AC8 — the deploy guide does not describe the gb10 pool, and [010](010-observability-bench.md) does not record that device-memory metrics are absent on this class. |
 | 020 | AC6 — no end-to-end test covers install → serve → `/ready` → completion. |
 | 022 | AC4 — **no 262K-token request has been sent.** The cache holds 292,125 tokens, but capacity is not a served request. |
+| 002 | AC4/AC5 — the mirror tool is built and tested, but the ~2.7 TB fleet set is not mirrored and no engine has loaded from an S3 prefix. |
+| 003 | AC1/AC4 — the health contract, both dialect surfaces and the warm-cache skip are built and tested; `s3-stream` has never run against a real engine. |
+| 010 | AC1/AC3/AC4 — `llmops bench` is built and has measured a live model; the dashboards, the numbers-into-specs flow and the router comparison do not exist. |
 
-Everything else those specs asked for holds, and 021, 024, 025 and 026
-are closed.
+Everything else those specs asked for holds. 001, 011, 021, 024, 025 and
+026 are closed.
+
+**Why every model spec is `draft`.** 004, 005, 006, 007, 017 and 018 each
+have a checked-in manifest and deploy artifact that CI validates — but a
+model spec's deliverable is a *served endpoint*, and none of them has
+one. The weights are not mirrored, nothing runs on a GPU node, and
+nothing is registered in Lux. One criterion of six holds, so `draft` is
+the honest reading and the checked-in artifacts are preparation rather
+than product. The same is true of 008, which no `kustomize` invocation
+anywhere in the repo exercises, and 009, which has no code at all.
+
+022 is the one model spec that is not draft, because it is the one that
+serves.
 
 Dependency shape: 001 and 002 unblock everything; 003 needs both. A
 model spec needs 003 plus the deploy mode it uses — 008 for the fleet,

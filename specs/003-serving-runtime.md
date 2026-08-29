@@ -1,6 +1,6 @@
 ---
 title: Serving Runtime (engine container + S3 loading + API surface)
-status: draft
+status: partial
 depends_on:
   - 001-inference-engine-selection.md
   - 002-weights-registry.md

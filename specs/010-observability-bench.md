@@ -1,6 +1,6 @@
 ---
 title: Observability and Benchmark Harness
-status: draft
+status: partial
 depends_on:
   - 003-serving-runtime.md
 affects:

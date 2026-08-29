@@ -1,6 +1,6 @@
 ---
 title: Inference Engine Selection (decision record)
-status: draft
+status: complete
 depends_on:
   - 000-architecture.md
 affects:

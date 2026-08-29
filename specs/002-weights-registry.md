@@ -1,6 +1,6 @@
 ---
 title: Frozen Weights Registry (HF → S3 mirror)
-status: draft
+status: partial
 depends_on:
   - 000-architecture.md
 affects:
