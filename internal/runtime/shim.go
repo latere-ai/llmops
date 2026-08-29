@@ -8,12 +8,17 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"latere.ai/x/pkg/llmdialect"
 	"latere.ai/x/pkg/llmdialect/anthropic"
+	"latere.ai/x/pkg/llmdialect/ir"
 	"latere.ai/x/pkg/llmdialect/openaichat"
+	"latere.ai/x/pkg/llmdialect/openairesp"
 
 	"github.com/latere-ai/llmops/internal/manifest"
 )
@@ -30,12 +35,16 @@ type Shim struct {
 	proxy       *httputil.ReverseProxy
 	client      *http.Client // short-timeout, health/metrics only
 	inference   *http.Client // no timeout: long generations
-	translator  *llmdialect.Translator
+	surfaces    map[string]*surface
 	weightsSecs atomic.Value // float64; 0 while loading
+	lossCount   sync.Map     // lossKey -> *atomic.Int64
 
 	// SystemPrompt, when set, is enforced on every chat request —
 	// both dialect surfaces (specs/003).
 	SystemPrompt *manifest.SystemPrompt
+
+	// enginePath is where the engine listens for the dialect it speaks.
+	enginePath string
 
 	// HealthPath is the engine's health endpoint (default /health,
 	// which SGLang and vLLM both expose; overridable for substitute
@@ -56,17 +65,71 @@ func NewShim(engineURL string) (*Shim, error) {
 		proxy:     proxy,
 		client:    &http.Client{Timeout: 5 * time.Second},
 		inference: &http.Client{},
-		// Anthropic Messages callers drive the engine's OpenAI Chat
-		// surface through the shared dialect translator (latere.ai/x/pkg/llmdialect).
-		// The Lux dialect is deliberately absent: that surface belongs to
-		// the gateway, which embeds the same package (specs/009).
-		translator: &llmdialect.Translator{
-			Frontend: anthropic.NewFrontend(),
-			Backend:  openaichat.NewBackend(openaichat.BackendOptions{}),
-		},
 	}
 	s.weightsSecs.Store(float64(0))
+	if err := s.setDialect(manifest.EngineDialectOpenAIChat); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// surface is one caller-facing dialect: the path it answers on, the
+// codec that decodes it, and the translator that drives the engine.
+// Translator is nil when the caller speaks what the engine speaks —
+// there is nothing to translate, so the request is proxied.
+type surface struct {
+	dialect    ir.Dialect
+	translator *llmdialect.Translator
+	native     bool
+}
+
+// frontends is the caller-side dialect table (specs/025). Adding a
+// surface is a row here, not a branch in ServeHTTP.
+//
+// The Lux dialect is deliberately absent: that surface belongs to the
+// gateway, which embeds the same package (specs/009). Serving it here
+// would put one dialect in two places with two owners.
+var frontends = []struct {
+	path    string
+	dialect ir.Dialect
+	make    func() llmdialect.Frontend
+}{
+	{"/v1/chat/completions", ir.DialectOpenAIChat, func() llmdialect.Frontend { return openaichat.NewFrontend() }},
+	{"/v1/messages", ir.DialectAnthropicMessages, func() llmdialect.Frontend { return anthropic.NewFrontend() }},
+	{"/v1/responses", ir.DialectOpenAIResponses, func() llmdialect.Frontend { return openairesp.NewFrontend() }},
+}
+
+// backends maps the engine's declared dialect to the codec that encodes
+// for it and the upstream path it listens on.
+var backends = map[string]struct {
+	dialect ir.Dialect
+	path    string
+	make    func() llmdialect.Backend
+}{
+	manifest.EngineDialectOpenAIChat: {ir.DialectOpenAIChat, "/v1/chat/completions",
+		func() llmdialect.Backend { return openaichat.NewBackend(openaichat.BackendOptions{}) }},
+	manifest.EngineDialectAnthropic: {ir.DialectAnthropicMessages, "/v1/messages",
+		func() llmdialect.Backend { return anthropic.NewBackend(anthropic.BackendOptions{}) }},
+	manifest.EngineDialectOpenAIResponses: {ir.DialectOpenAIResponses, "/v1/responses",
+		func() llmdialect.Backend { return openairesp.NewBackend() }},
+}
+
+// setDialect binds every caller surface to the engine's dialect.
+func (s *Shim) setDialect(engineDialect string) error {
+	be, ok := backends[engineDialect]
+	if !ok {
+		return fmt.Errorf("engine dialect %q has no backend codec", engineDialect)
+	}
+	s.enginePath = be.path
+	s.surfaces = make(map[string]*surface, len(frontends))
+	for _, f := range frontends {
+		sf := &surface{dialect: f.dialect, native: f.dialect == be.dialect}
+		if !sf.native {
+			sf.translator = &llmdialect.Translator{Frontend: f.make(), Backend: be.make()}
+		}
+		s.surfaces[f.path] = sf
+	}
+	return nil
 }
 
 // SetWeightsLoaded records the weight-preparation duration; readiness
@@ -110,33 +173,50 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "loading")
 	case "/metrics":
 		s.metrics(w)
-	case "/anthropic/v1/messages":
-		s.anthropicMessages(w, r)
-	case "/v1/chat/completions":
-		if s.SystemPrompt != nil && r.Method == http.MethodPost {
-			s.chatCompletions(w, r)
-			return
-		}
-		s.proxy.ServeHTTP(w, r)
 	default:
-		s.proxy.ServeHTTP(w, r)
+		sf, ok := s.surfaces[r.URL.Path]
+		switch {
+		case !ok:
+			s.proxy.ServeHTTP(w, r)
+		case r.Method == http.MethodPost:
+			s.dialectSurface(w, r, sf)
+		case sf.native:
+			// The engine owns this path; what it does with other methods
+			// is its business, not ours to pre-empt.
+			s.proxy.ServeHTTP(w, r)
+		default:
+			// A translated surface exists only here — the engine does not
+			// serve this path at all, so proxying would 404 and blame the
+			// wrong component.
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	}
 }
 
-// chatCompletions intercepts the OpenAI surface only when a system
-// prompt must be enforced; otherwise the transparent proxy handles it.
-func (s *Shim) chatCompletions(w http.ResponseWriter, r *http.Request) {
+// dialectSurface serves one caller dialect. A surface the engine already
+// speaks is proxied — translating a request into the dialect it is
+// already in would cost a round trip through the IR and lose whatever
+// the IR cannot carry, for nothing.
+func (s *Shim) dialectSurface(w http.ResponseWriter, r *http.Request, sf *surface) {
+	if sf.native && s.SystemPrompt == nil {
+		s.proxy.ServeHTTP(w, r)
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 512<<20))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	injected, err := injectSystemPrompt(body, s.SystemPrompt)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
+	if sf.native {
+		injected, err := injectSystemPrompt(body, s.SystemPrompt)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
+			return
+		}
+		s.forward(w, r, s.enginePath, injected)
 		return
 	}
-	s.forward(w, r, "/v1/chat/completions", injected)
+	s.translated(w, r, sf, body)
 }
 
 // forward posts body to the engine and streams the response back,
@@ -230,26 +310,35 @@ func injectSystemPrompt(body []byte, sp *manifest.SystemPrompt) ([]byte, error) 
 
 // anthropicMessages serves the Anthropic Messages dialect over the
 // engine's OpenAI Chat endpoint, streaming included.
-func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 512<<20))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	out, req, err := s.translator.Request(body)
+// LossHeader names the request fields a surface could not carry. It
+// mirrors Lux's X-Lux-Compat-Loss so a client parsing one parses both.
+const LossHeader = "X-LLMOps-Compat-Loss"
+
+// translated serves a caller dialect the engine does not speak, through
+// the shared IR (specs/025).
+func (s *Shim) translated(w http.ResponseWriter, r *http.Request, sf *surface, body []byte) {
+	out, req, err := sf.translator.Request(body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("translate request: %v", err), http.StatusBadRequest)
 		return
+	}
+	// llmdialect collects what a target dialect cannot represent rather
+	// than dropping it silently. Discarding the report here would
+	// reproduce the exact silent drop the package exists to prevent, so
+	// the caller is told and the operator gets a count.
+	if fields := req.Loss.Fields(); len(fields) > 0 {
+		names := make([]string, len(fields))
+		for i, f := range fields {
+			names[i] = string(f)
+		}
+		w.Header().Set(LossHeader, strings.Join(names, ","))
+		s.recordLoss(sf.dialect, names)
 	}
 	if out, err = injectSystemPrompt(out, s.SystemPrompt); err != nil {
 		http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
 		return
 	}
-	up, err := s.engineRequest(r, "/v1/chat/completions", out)
+	up, err := s.engineRequest(r, s.enginePath, out)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -268,7 +357,7 @@ func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		if err := s.translator.Stream(w, resp.Body); err != nil {
+		if err := sf.translator.Stream(w, resp.Body); err != nil {
 			return // stream already started; nothing safe to send
 		}
 		return
@@ -278,7 +367,7 @@ func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	translated, err := s.translator.Response(upstream)
+	translated, err := sf.translator.Response(upstream)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("translate response: %v", err), http.StatusBadGateway)
 		return
@@ -287,9 +376,20 @@ func (s *Shim) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 	w.Write(translated)
 }
 
-// metrics passes the engine's Prometheus output through and appends the
-// runtime's own gauges. The endpoint stays serviceable while the engine
-// is still starting.
+type lossKey struct {
+	dialect ir.Dialect
+	field   string
+}
+
+// recordLoss counts how often a surface could not carry a field. How
+// often callers ask for something a dialect cannot express is a fact
+// about whether that surface is the right one.
+func (s *Shim) recordLoss(d ir.Dialect, fields []string) {
+	for _, f := range fields {
+		v, _ := s.lossCount.LoadOrStore(lossKey{d, f}, new(atomic.Int64))
+		v.(*atomic.Int64).Add(1)
+	}
+}
 func (s *Shim) metrics(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	if resp, err := s.client.Get(s.engine.String() + "/metrics"); err == nil {
@@ -303,4 +403,22 @@ func (s *Shim) metrics(w http.ResponseWriter) {
 	fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
 	fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")
 	fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
+
+	// One line per (surface, field) a caller asked for and the dialect
+	// could not carry (specs/025).
+	var lines []string
+	s.lossCount.Range(func(k, v any) bool {
+		key := k.(lossKey)
+		lines = append(lines, fmt.Sprintf("llmops_dialect_loss_total{dialect=%q,field=%q} %d",
+			string(key.dialect), key.field, v.(*atomic.Int64).Load()))
+		return true
+	})
+	if len(lines) > 0 {
+		sort.Strings(lines) // stable output; Range order is undefined
+		fmt.Fprintf(w, "# HELP llmops_dialect_loss_total Request fields a caller's dialect could not carry.\n")
+		fmt.Fprintf(w, "# TYPE llmops_dialect_loss_total counter\n")
+		for _, l := range lines {
+			fmt.Fprintln(w, l)
+		}
+	}
 }

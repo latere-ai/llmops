@@ -99,6 +99,9 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	if err != nil {
 		return err
 	}
+	if err := shim.setDialect(m.Dialect()); err != nil {
+		return err
+	}
 	shim.SystemPrompt = m.SystemPrompt
 	shim.HealthPath = os.Getenv("LLMOPS_ENGINE_HEALTH_PATH")
 

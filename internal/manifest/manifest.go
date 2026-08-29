@@ -33,10 +33,26 @@ const (
 	LoadLocal = "local"
 )
 
+// Engine dialects accepted in the `engine_dialect` field (specs/025):
+// the wire dialect the *engine* speaks, which the shim translates
+// callers into. Values match latere.ai/x/pkg/llmdialect's ir.Dialect so
+// the two cannot drift.
+//
+// Declared rather than inferred from `runtime`, because it is a property
+// of the engine build and not of our choice of engine. SGLang and vLLM
+// both serve OpenAI Chat today; an engine serving something else needs a
+// way to say so, and assuming would translate a caller's dialect into
+// one the engine then translates back.
+const (
+	EngineDialectOpenAIChat      = "openai-chat"
+	EngineDialectAnthropic       = "anthropic-messages"
+	EngineDialectOpenAIResponses = "openai-responses"
+)
+
 // Deploy modes accepted in the `deploy` field (specs/020). The mode
 // selects how the process is started and which deploy artifact the
 // model owns, not how it serves — both modes run the same
-// `runtime serve` entrypoint against the same schema.
+// `llmops serve` entrypoint against the same schema.
 //
 // It is an explicit field rather than something inferred from gpu.type:
 // deploy mode and hardware are independent axes, and inferring would
@@ -95,21 +111,22 @@ type SystemPrompt struct {
 
 // Manifest is one models/<name>.yaml.
 type Manifest struct {
-	Name         string        `yaml:"name"`
-	HFRepo       string        `yaml:"hf_repo"`
-	Revision     string        `yaml:"revision"`
-	S3Prefix     string        `yaml:"s3_prefix"`
-	Format       string        `yaml:"format"`
-	License      string        `yaml:"license"`
-	LicenseNote  string        `yaml:"license_note,omitempty"`
-	Runtime      string        `yaml:"runtime"`
-	Image        string        `yaml:"image,omitempty"`
-	Deploy       string        `yaml:"deploy,omitempty"`
-	Load         string        `yaml:"load"`
-	GPU          GPU           `yaml:"gpu"`
-	ContextMax   int           `yaml:"context_max"`
-	Args         []string      `yaml:"args,omitempty"`
-	SystemPrompt *SystemPrompt `yaml:"system_prompt,omitempty"`
+	Name          string        `yaml:"name"`
+	HFRepo        string        `yaml:"hf_repo"`
+	Revision      string        `yaml:"revision"`
+	S3Prefix      string        `yaml:"s3_prefix"`
+	Format        string        `yaml:"format"`
+	License       string        `yaml:"license"`
+	LicenseNote   string        `yaml:"license_note,omitempty"`
+	Runtime       string        `yaml:"runtime"`
+	Image         string        `yaml:"image,omitempty"`
+	Deploy        string        `yaml:"deploy,omitempty"`
+	EngineDialect string        `yaml:"engine_dialect,omitempty"`
+	Load          string        `yaml:"load"`
+	GPU           GPU           `yaml:"gpu"`
+	ContextMax    int           `yaml:"context_max"`
+	Args          []string      `yaml:"args,omitempty"`
+	SystemPrompt  *SystemPrompt `yaml:"system_prompt,omitempty"`
 }
 
 var (
@@ -152,6 +169,13 @@ func (m *Manifest) EngineImage() string {
 		return img
 	}
 	return "llmops-runtime-" + m.Runtime
+}
+
+// Dialect is the wire dialect the engine speaks, defaulting to OpenAI
+// Chat — true of both engines we ship, and of every manifest written
+// before the field existed (specs/025).
+func (m *Manifest) Dialect() string {
+	return cmp.Or(m.EngineDialect, EngineDialectOpenAIChat)
 }
 
 // DeployMode is the model's deploy mode, defaulting to k8s so every
@@ -254,6 +278,12 @@ func (m *Manifest) Validate() error {
 		}
 	default:
 		fail("runtime %q must be one of sglang|vllm|custom", m.Runtime)
+	}
+
+	switch m.Dialect() {
+	case EngineDialectOpenAIChat, EngineDialectAnthropic, EngineDialectOpenAIResponses:
+	default:
+		fail("engine_dialect %q must be one of openai-chat|anthropic-messages|openai-responses", m.EngineDialect)
 	}
 
 	switch m.DeployMode() {

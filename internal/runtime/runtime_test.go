@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -589,7 +590,7 @@ func TestShimAnthropicMessages(t *testing.T) {
 	defer front.Close()
 
 	body := `{"model":"tiny","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`
-	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,7 +614,7 @@ func TestShimAnthropicMessagesStream(t *testing.T) {
 	defer front.Close()
 
 	body := `{"model":"tiny","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
-	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +643,7 @@ func TestShimAnthropicMessagesErrors(t *testing.T) {
 	defer front.Close()
 
 	// Malformed request body.
-	resp, _ := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader("{"))
+	resp, _ := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader("{"))
 	if resp.StatusCode != 400 {
 		t.Fatalf("bad body status %d", resp.StatusCode)
 	}
@@ -650,14 +651,14 @@ func TestShimAnthropicMessagesErrors(t *testing.T) {
 
 	// Engine-side failure passes its status through.
 	body := `{"model":"boom","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`
-	resp, _ = http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	resp, _ = http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if resp.StatusCode != 500 {
 		t.Fatalf("engine error status %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	// Wrong method.
-	resp, _ = http.Get(front.URL + "/anthropic/v1/messages")
+	resp, _ = http.Get(front.URL + "/v1/messages")
 	if resp.StatusCode != 405 {
 		t.Fatalf("GET status %d", resp.StatusCode)
 	}
@@ -666,7 +667,7 @@ func TestShimAnthropicMessagesErrors(t *testing.T) {
 	// Engine unreachable.
 	dead, _ := NewShim("http://127.0.0.1:1")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader(
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(
 		`{"model":"tiny","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
 	dead.ServeHTTP(rec, req)
 	if rec.Code != 502 {
@@ -695,7 +696,7 @@ func TestShimAnthropicMessagesBadUpstream(t *testing.T) {
 	defer front.Close()
 
 	body := `{"model":"tiny","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`
-	resp, _ := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	resp, _ := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if resp.StatusCode != 502 {
 		t.Fatalf("garbage upstream status %d", resp.StatusCode)
 	}
@@ -704,7 +705,7 @@ func TestShimAnthropicMessagesBadUpstream(t *testing.T) {
 	// Streaming garbage: status is already 200, but the handler must
 	// terminate without panicking.
 	sbody := `{"model":"tiny","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
-	resp, err = http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(sbody))
+	resp, err = http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(sbody))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +723,7 @@ func TestShimAnthropicMessagesBodyReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/anthropic/v1/messages", errReader{})
+	req := httptest.NewRequest("POST", "/v1/messages", errReader{})
 	shim.ServeHTTP(rec, req)
 	if rec.Code != 400 {
 		t.Fatalf("body read error status %d", rec.Code)
@@ -859,7 +860,7 @@ func TestSystemPromptInjectionAnthropicPath(t *testing.T) {
 	defer front.Close()
 
 	body := `{"model":"tiny","max_tokens":8,"system":"caller","messages":[{"role":"user","content":"hi"}]}`
-	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -890,7 +891,7 @@ func TestAnthropicForwardPreservesCallerHeadersAndQuery(t *testing.T) {
 	front := httptest.NewServer(shim)
 	defer front.Close()
 
-	req, err := http.NewRequest(http.MethodPost, front.URL+"/anthropic/v1/messages?trace=abc123",
+	req, err := http.NewRequest(http.MethodPost, front.URL+"/v1/messages?trace=abc123",
 		strings.NewReader(`{"model":"tiny","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -1046,7 +1047,7 @@ func TestShimAnthropicToolResultPreservesTurnOrder(t *testing.T) {
 		`{"type":"text","text":"before"},` +
 		`{"type":"tool_result","tool_use_id":"tu_1","content":"R"},` +
 		`{"type":"text","text":"after"}]}]}`
-	resp, err := http.Post(front.URL+"/anthropic/v1/messages", "application/json", strings.NewReader(body))
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1088,5 +1089,166 @@ func TestShimAnthropicToolResultPreservesTurnOrder(t *testing.T) {
 		if got.ToolCallID != w.toolCallID {
 			t.Errorf("message %d tool_call_id = %q, want %q", i, got.ToolCallID, w.toolCallID)
 		}
+	}
+}
+
+// TestShimServesEveryCallerDialect covers the surfaces the shim gained
+// in specs/025: three caller dialects on one engine, not one.
+func TestShimServesEveryCallerDialect(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	for _, tc := range []struct{ path, body string }{
+		{"/v1/chat/completions", `{"model":"tiny","messages":[{"role":"user","content":"hi"}]}`},
+		{"/v1/messages", `{"model":"tiny","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`},
+		{"/v1/responses", `{"model":"tiny","input":"hi"}`},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			resp, err := http.Post(front.URL+tc.path, "application/json", strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			out, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != 200 {
+				t.Fatalf("status %d: %s", resp.StatusCode, out)
+			}
+			if !bytes.Contains(out, []byte("hello")) {
+				t.Fatalf("answer did not survive translation: %s", out)
+			}
+		})
+	}
+}
+
+// TestShimNativeSurfaceIsNotRoundTripped pins that a caller speaking the
+// engine's own dialect is proxied rather than translated. Sending it
+// through the IR and back would cost a round trip and lose whatever the
+// IR cannot carry, for nothing (specs/025 AC3).
+func TestShimNativeSurfaceIsNotRoundTripped(t *testing.T) {
+	var got []byte
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`)
+	}))
+	defer engine.Close()
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	// A field the IR does not model at all: it must survive untouched,
+	// which only happens if the body was never decoded.
+	sent := `{"model":"tiny","messages":[{"role":"user","content":"hi"}],"x_vendor_passthrough":{"keep":1}}`
+	resp, err := http.Post(front.URL+"/v1/chat/completions", "application/json", strings.NewReader(sent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if string(got) != sent {
+		t.Fatalf("native surface was rewritten:\n got  %s\n want %s", got, sent)
+	}
+}
+
+// TestShimReportsDialectLoss is the criterion the old code silently
+// failed: llmdialect collects fields a target dialect cannot carry, and
+// the shim discarded the report (specs/025 AC4).
+func TestShimReportsDialectLoss(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	// logprobs has no member in Anthropic Messages, so asking for it
+	// through that surface is reported as loss rather than ignored.
+	body := `{"model":"tiny","max_tokens":32,"top_logprobs":3,` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	loss := resp.Header.Get(LossHeader)
+	if loss == "" {
+		t.Fatalf("no %s header; the loss report was discarded again", LossHeader)
+	}
+
+	// The same loss must be countable by an operator, not only visible
+	// to the one caller who hit it.
+	m := httptest.NewRecorder()
+	shim.ServeHTTP(m, httptest.NewRequest("GET", "/metrics", nil))
+	if !strings.Contains(m.Body.String(), "llmops_dialect_loss_total") {
+		t.Fatalf("loss not exported as a metric:\n%s", m.Body.String())
+	}
+}
+
+// TestShimTranslatedSurfaceRejectsNonPost pins that a surface only this
+// shim serves claims its own methods: proxying a GET would 404 from the
+// engine and blame the wrong component.
+func TestShimTranslatedSurfaceRejectsNonPost(t *testing.T) {
+	engine := chatEngine(t)
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	resp, err := http.Get(front.URL + "/v1/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET on a translated surface: %d, want 405", resp.StatusCode)
+	}
+}
+
+// TestShimEngineDialectSelectsBackend pins that the engine's dialect,
+// not an assumption, decides what gets translated and where it is sent.
+func TestShimEngineDialectSelectsBackend(t *testing.T) {
+	var hitPath string
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitPath = r.URL.Path
+		fmt.Fprint(w, `{"id":"m1","type":"message","role":"assistant","model":"tiny",`+
+			`"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn",`+
+			`"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer engine.Close()
+	shim, err := NewShim(engine.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An engine that speaks Anthropic: now the OpenAI surface is the
+	// translated one and /v1/messages is native.
+	if err := shim.setDialect(manifest.EngineDialectAnthropic); err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(shim)
+	defer front.Close()
+
+	resp, err := http.Post(front.URL+"/v1/chat/completions", "application/json",
+		strings.NewReader(`{"model":"tiny","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, out)
+	}
+	if hitPath != "/v1/messages" {
+		t.Fatalf("engine was hit at %q, want /v1/messages", hitPath)
 	}
 }
