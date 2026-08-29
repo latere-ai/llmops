@@ -234,10 +234,16 @@ have killed this mid-load; [[020-bare-metal-packaging]]'s
 `llmops bench` over 3 requests, concurrency 1: **2.99 tokens/s**, TTFT
 p50 **691 ms**, no errors.
 
-That is roughly 60% of what this box's memory bandwidth allows for
-54 GB of weights read per token, so it is not a misconfiguration — it is
-what a dense 27B at BF16 costs on this hardware. It is too slow for
-interactive use.
+Measured achievable bandwidth on this box is **~230 GB/s**, so reading
+54 GB per token puts the ceiling at 4.3 tok/s and we are at **~70% of
+it**. That is normal for real inference, so this is not a
+misconfiguration — it is what a dense 27B at BF16 costs here. It is
+still too slow for interactive use.
+
+(An earlier draft cited ~60% against a bandwidth figure taken from
+memory rather than measured. See `PRACTICE.md` for the measurement, and
+for the trap that a reduction kernel reports 164 GB/s and is not
+measuring memory at all.)
 
 The fix is not more memory but fewer bytes per token: an INT8 or 4-bit
 quantization would read a half or a quarter as much and go

@@ -67,6 +67,9 @@ internal/   manifest schema, mirror logic, runtime shim, bench, deploycheck
 
 Operators: [`DEPLOY.md`](./DEPLOY.md) is the end-to-end guide — build
 images, freeze weights, deploy, and every configuration knob.
+[`PRACTICE.md`](./PRACTICE.md) is how to decide whether a model belongs
+on a given GPU at all: what sets fit, what sets speed, and the measured
+numbers for the hardware we run.
 
 ## Build
 
