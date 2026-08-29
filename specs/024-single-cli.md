@@ -35,9 +35,19 @@ llmops verify    <prefix>                              check a store against its
 llmops list      --bucket <root>                       what is mirrored there
 llmops serve     --manifest <path>                     engine entrypoint / ExecStart
 llmops validate  models/                               manifest + deploy consistency
+llmops install   --manifest <path>                     place the unit + manifest on a host
 llmops bench     --url … --model …                     live endpoint benchmark
 llmops version                                         what is installed on this host
 ```
+
+Ten, counting `install`, which [[020-bare-metal-packaging]] had already
+added to this binary — this spec's dependency, and the reason the third
+binary was worth removing at all.
+
+[[026-harness-integration]] later added `ps`, `endpoint` and `run`,
+making thirteen. That it could do so by appending three cases to one
+switch, with no new binary to build, package or install, is the return
+on this decision.
 
 ### Why flat rather than a `mirror` group
 
@@ -142,7 +152,7 @@ answered it.
 
 ## Acceptance criteria
 
-- **AC1** All nine subcommands work flat, with every flag keeping the
+- **AC1** All ten subcommands work flat, with every flag keeping the
   name and default it has today.
 - **AC2** The tests that covered the three binaries pass unchanged in
   their new location, save for the program name and the dropped `mirror`
