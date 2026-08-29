@@ -158,6 +158,12 @@ which puts a second engine on a box that already had one.
 
 ### The install path
 
+What `install` writes is read back by more than systemd:
+[[026-harness-integration]]'s `ps`, `endpoint` and `run` derive a
+running model's port, dialect path and harness config from the installed
+unit and manifest. The unit is therefore an interface, not just a
+startup detail, and AC4a's byte-identical check is what keeps it one.
+
 `llmops install --manifest <path>` writes the unit, installs the
 manifest to `/etc/llmops/`, and reloads systemd — but only when the unit
 actually changed, so a repeated install is a genuine no-op rather than a
@@ -215,7 +221,11 @@ configuration to rot.
   binary.
 - **AC6** `make e2e` covers the bare-metal path end to end — install,
   serve, `/ready`, a completion, `/metrics` — against the existing
-  in-process fakes, with no GPU and no root.
+  in-process fakes, with no GPU and no root. **Open, and the only one
+  here that is.** The halves exist separately — `TestInstall*` covers
+  writing the unit, `TestServeE2E` covers serve through `/ready` to a
+  completion — and nothing runs them as one chain, which is exactly
+  where a mode that spans two commands can break.
 - **AC7** docs/deploy.md documents both modes side by side, including which
   engine versions a bare-metal host must install, that this repo does
   not manage them, and that each engine gets its own virtualenv.
