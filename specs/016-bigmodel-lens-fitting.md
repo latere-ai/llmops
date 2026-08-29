@@ -9,7 +9,7 @@ affects:
   - deploy/
 effort: large
 created: 2026-07-22
-updated: 2026-07-22
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -19,16 +19,28 @@ dispatched_task_id: null
 ## Overview
 
 [[012-lens-fitting-pipeline]] proves the pipeline on small dense
-models. Fitting the fleet models (`models/kimi-k2.7-code.yaml`,
-`models/glm-5.2.yaml`, `models/minimax-m3.yaml`,
-`models/deepseek-v4-pro.yaml` — 1T-class MoE on 8×H200) is a
-different problem: the estimator needs **backward passes (VJPs)**
-through the full model — training-scale memory on models we only ever
-serve, and the serving engines don't even ship a training stack. This
-spec is the gate: cost it, pick a strategy, and only then spend GPU
-time. Deliberately last — like [[007-model-deepseek-v4-pro]] it is
-hardware-gated and must not block the monitoring plane for models
-where fitting is affordable.
+models. Fitting the fleet models — `kimi-k2.7-code`, `glm-5.2`,
+`minimax-m3`, `deepseek-v4-pro`, and since the 2026-08 refresh
+`deepseek-v4-flash-0731` and `kimi-k3`, 300B to 2.8T MoE on 8x
+H200/B200/B300 — is a different problem: the estimator needs
+**backward passes (VJPs)** through the full model — training-scale
+memory on models we only ever serve, and the serving engines don't even
+ship a training stack. This spec is the gate: cost it, pick a strategy,
+and only then spend GPU time. Deliberately last — like
+[[007-model-deepseek-v4-pro]] it is hardware-gated and must not block
+the monitoring plane for models where fitting is affordable.
+
+Six models now, not four, and they no longer span one order of
+magnitude: [[018-model-kimi-k3]] at 2.8T sets the cost table's ceiling,
+and [[017-model-deepseek-v4-flash-0731]] at 304B its floor.
+
+**A middle case appeared that this split did not anticipate.**
+[[022-model-qwen3.8-27b]] is 27B dense on one GB10 — far above the
+0.6B of 012 and far below anything here, on hardware nobody schedules.
+Whether a VJP fits in its 128 GB unified pool is the cheapest question
+in this spec, and answering it first would tell us what the estimator
+costs at real scale before any fleet GPU is spent. Cost it in the table
+below alongside the six.
 
 ## Components
 
