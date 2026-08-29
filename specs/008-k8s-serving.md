@@ -5,9 +5,10 @@ depends_on:
   - 003-serving-runtime.md
 affects:
   - deploy/
+  - internal/deploycheck/
 effort: medium
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -24,15 +25,26 @@ architecture change.
 
 ## Scope
 
-1. **`deploy/` manifests** (kustomize, mirroring sibling repos): one LWS
-   per model, GPU resource requests, node selectors for GPU type
-   (h200/b200 pools), PodMonitor for `/metrics`, PDB.
+1. **`deploy/<model>/lws.yaml`**: one LeaderWorkerSet per k8s model, GPU
+   resource requests, node selectors for GPU type (h200/b200/b300 pools),
+   PodMonitor for `/metrics`, PDB. Plain manifests, not kustomize
+   overlays — see AC1 for why that changed.
+
+   `deploy/` is no longer k8s-only: a `deploy: bare-metal` model owns a
+   systemd unit in the same layout instead
+   ([[020-bare-metal-packaging]]), and `internal/deploycheck` dispatches
+   on the mode so neither is validated against the other's artifact. A
+   model owns exactly one artifact; two would be two sources of truth for
+   how it starts.
 2. **NVMe cache prefetch DaemonSet** (per GPU pool): pre-syncs configured
    model prefixes from S3 to hostPath NVMe so pod cold-start skips the
    S3 pull; runtime's `nvme-cache` mode finds a warm cache. Cache eviction
    is manual (models are few and huge).
 3. **Node prerequisites documented** (owned by infrastructure
-   provisioning, consumed here): NVIDIA GPU Operator; for multi-node later — Network Operator,
+   provisioning, consumed here): NVIDIA GPU Operator; an **r580+ NVIDIA
+   driver on the b300 pool**, which the h200/b200 pools do not need and
+   which is why [[018-model-kimi-k3]] cannot share their image; for
+   multi-node later — Network Operator,
    RoCEv2 (not InfiniBand: 400GbE RoCEv2 is the 2026 inference default),
    NCCL env (`NCCL_SOCKET_IFNAME`, `NCCL_IB_HCA`, `NCCL_NET_GDR_LEVEL`).
 4. **Gang scheduling**: none needed for size=1 groups; when multi-node
@@ -47,11 +59,26 @@ architecture change.
 | GLM-5.2 | FP8 | 1x node 8x H200, TP8 + EP; 1M ctx needs fp8_e5m2 KV |
 | MiniMax-M3 | MXFP8 | 1x node 8x H200 (MXFP8 from TP4) |
 | DeepSeek-V4-Pro | FP4+FP8 | 8x B200/B300 (native FP4) or 8x H200 tight or 2x8 H100 |
+| DeepSeek-V4-Flash-0731 | FP4+FP8 | 1x node 8x B200, TP8 ([[017-model-deepseek-v4-flash-0731]]) |
+| Kimi-K3 | MXFP4/MXFP8 | 1x node 8x B300, r580+ driver ([[018-model-kimi-k3]]) |
+
+Six models, three pools. The seventh manifest, Qwen3.8-27B, is not here:
+one GB10 GPU has nothing for a scheduler to schedule, so it takes the
+bare-metal mode ([[019-gb10-serving-target]]).
 
 ## Acceptance criteria
 
-1. `kustomize build deploy/<model>` renders valid manifests for all four
-   models (CI golden-file test).
+1. Every k8s model's `deploy/<model>/lws.yaml` is consistent with its
+   manifest — image, GPU count and type, node selector, mounted manifest,
+   probes — checked by `llmops validate` in CI and by
+   `internal/deploycheck` in tests. **Holds today for all six.**
+
+   This replaces the original "`kustomize build` renders + golden files".
+   Kustomize was never adopted: with one LWS per model and no overlays to
+   compose, rendering has nothing to render, and a golden file proves the
+   YAML did not change rather than that it agrees with the manifest.
+   Cross-validation against `models/*.yaml` is the check that would have
+   caught a real mistake, so it is the one that exists.
 2. One real model (Kimi-K2.7-Code, per roadmap order) reaches `/ready` on
    a GPU node via LWS, loading from NVMe cache; kill the pod → recovers
    without re-downloading (warm cache).
