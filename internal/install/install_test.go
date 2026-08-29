@@ -222,3 +222,18 @@ args: ["--tp-size=8"]
 		t.Fatalf("k8s model accepted by install: %v", err)
 	}
 }
+
+// TestDaemonReloadWithoutSystemctl covers the path a machine without
+// systemd takes: rendering the files is still useful when staging them
+// for another host, so a missing systemctl is not an error.
+func TestDaemonReloadWithoutSystemctl(t *testing.T) {
+	// An empty PATH guarantees the lookup fails, whatever the host has.
+	t.Setenv("PATH", "")
+	var log strings.Builder
+	if err := daemonReload(&log); err != nil {
+		t.Fatalf("a missing systemctl must not be an error: %v", err)
+	}
+	if !strings.Contains(log.String(), "systemctl not found") {
+		t.Fatalf("the skip was silent: %q", log.String())
+	}
+}

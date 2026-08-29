@@ -1,10 +1,9 @@
 GO ?= go
-COVER_MIN = 90.0
 # Image registry/namespace prefix — override for Nexus, ECR, Harbor, etc.
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover validate fmt fmt-check hooks vet e2e images dist clean lint-modernize
+.PHONY: build test cover test-hermetic test-race validate fmt fmt-check hooks vet e2e images dist clean lint-modernize
 
 build:
 	$(GO) build ./...
@@ -12,12 +11,33 @@ build:
 test: vet
 	$(GO) test ./...
 
-# Coverage gate: total statement coverage must be >= $(COVER_MIN)%.
+# Coverage gate, per package rather than as a repository average: an
+# average lets a well-tested package carry an untested one and reports a
+# number nobody can act on. Exemptions live in internal/covercheck with
+# a reason attached.
 cover:
-	$(GO) test ./... -coverprofile=coverage.out
-	@total=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
-	echo "total coverage: $$total% (min $(COVER_MIN)%)"; \
-	awk "BEGIN {exit !($$total >= $(COVER_MIN))}" || { echo "FAIL: coverage below $(COVER_MIN)%"; exit 1; }
+	$(GO) test ./... -coverprofile=coverage.out -coverpkg=./...
+	@$(GO) run ./internal/covercheck -profile=coverage.out
+
+# Run the suite without the developer's PATH.
+#
+# Three CI failures in one day came from tests that depended on what
+# happened to be installed on the machine running them: `systemctl`
+# present-but-unprivileged on a runner and absent on macOS, and `claude`
+# on a developer's PATH and not on a runner's. Each passed locally and
+# failed in CI, which is the worst order to find out.
+#
+# Keeping only the Go toolchain and the system directories reproduces a
+# runner's environment closely enough to catch that class before a push.
+test-hermetic:
+	@go_dir=$$(dirname $$(command -v $(GO))); \
+	echo "PATH=$$go_dir:/usr/bin:/bin"; \
+	env PATH="$$go_dir:/usr/bin:/bin" $(GO) test ./...
+
+# The race detector needs cgo, which the shipped binaries do not: this is
+# about finding a race in the test harness, not about what we compile to.
+test-race:
+	CGO_ENABLED=1 $(GO) test -race ./...
 
 # Validate all model manifests + deploy consistency (also run in `test`
 # via internal/deploycheck).

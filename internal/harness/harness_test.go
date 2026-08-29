@@ -165,3 +165,38 @@ func TestShellQuotingSurvivesAwkwardValues(t *testing.T) {
 		t.Fatalf("value was not quoted for eval:\n%s", sh)
 	}
 }
+
+func TestConfigRefusedForAnEnvOnlyHarness(t *testing.T) {
+	// claude has no config file; asking for one must say so rather than
+	// emit an empty file someone then wonders about.
+	h, err := Lookup("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Config(testEndpoint()); err == nil ||
+		!strings.Contains(err.Error(), "environment only") {
+		t.Fatalf("Config on an env-only harness: %v", err)
+	}
+}
+
+func TestRenderRejectsABrokenTemplate(t *testing.T) {
+	// A registry row is data, but a malformed template in one must fail
+	// loudly rather than emit a half-rendered config.
+	h := Harness{Name: "broken", Env: []Var{{"K", "{{.Nope}}"}}}
+	if _, err := h.EnvVars(testEndpoint()); err == nil {
+		t.Fatal("a template naming an unknown field rendered")
+	}
+	h2 := Harness{Name: "broken", Env: []Var{{"K", "{{"}}}
+	if _, err := h2.Shell(testEndpoint()); err == nil {
+		t.Fatal("an unparseable template rendered")
+	}
+}
+
+func TestEndpointForDefaultsTheHost(t *testing.T) {
+	// An empty host means "this machine": ps and endpoint probe over
+	// loopback, so that is the honest default.
+	e := EndpointFor(Model{Name: "m", Port: 8000}, "", "tok")
+	if e.BaseURL != "http://127.0.0.1:8000" {
+		t.Fatalf("BaseURL %q", e.BaseURL)
+	}
+}
