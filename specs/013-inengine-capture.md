@@ -12,7 +12,7 @@ affects:
   - Dockerfile.vllm
 effort: large
 created: 2026-07-22
-updated: 2026-07-22
+updated: 2026-08-29
 author: changkun
 dispatched_task_id: null
 ---
@@ -45,9 +45,18 @@ residual stream is replicated across TP ranks (Megatron-style), so
 capture runs on **rank 0 only**; no cross-GPU gather.
 
 Both engines ship from day one: one capture core, two thin adapters,
-pinned to the image versions from [[001-inference-engine-selection]]
-(vLLM `v0.25.1` in `Dockerfile.vllm`, SGLang `v0.5.15.post1` in
-`Dockerfile.sglang`).
+pinned to the image versions from [[001-inference-engine-selection]].
+Those were vLLM `v0.25.1` and SGLang `v0.5.15.post1` when this was
+written; they are now **vLLM `v0.28.0`** and **SGLang `v0.5.16-cu129`**,
+with a third image (`lmsysorg/sglang:kimi-k3`, CUDA 13) that this spec
+does not cover.
+
+That drift is the central risk here, not a footnote. Both adapters hook
+engine internals that carry no compatibility promise, so *the pinned
+version at implementation time is the only one the symbols were checked
+against*. Read the pin out of the Dockerfile when the work starts rather
+than out of this paragraph, and expect the K3 image to need its own
+verification pass or an explicit exclusion.
 
 ## Components
 
@@ -85,8 +94,8 @@ pinned to the image versions from [[001-inference-engine-selection]]
    layers of the rank-0 worker. Row→request mapping comes from the
    scheduler's per-step request ids (the model-runner input batch
    carries request ids in step order); sampled ids from the same
-   step's sampler output. Exact symbols verified against `v0.25.1` at
-   implementation time.
+   step's sampler output. Exact symbols verified against whatever
+   `Dockerfile.vllm` pins at implementation time.
 3. **SGLang adapter** — SGLang has no plugin API: a patch module
    installed in `Dockerfile.sglang` (activated via `sitecustomize`
    when `LLMOPS_LENS_ENABLED=1`) wraps the model runner after load
