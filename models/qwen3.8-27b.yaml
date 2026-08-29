@@ -30,3 +30,8 @@ context_max: 262144
 args:
   - --max-model-len=262144
   - --gpu-memory-utilization=0.65
+  # The chat template opens <think> in the *prompt*, so the model emits
+  # only the closing tag and its reasoning arrives inline in `content`.
+  # The parser moves it to `reasoning_content`, leaving `content` as the
+  # answer alone — otherwise every consumer has to split on </think>.
+  - --reasoning-parser=qwen3
