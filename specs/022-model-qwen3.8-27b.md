@@ -220,6 +220,11 @@ per request: 1.11x" — so one full-context request fits with room over.
   tested against a real image rather than inferred from a clean start.
 - Served under the manifest name `qwen3.8-27b`; `/metrics` exports
   `llmops_weights_load_seconds 39.19`.
+- `/v1/responses` is served too — [[025-dialect-surfaces]] made all
+  three caller dialects universal after AC2 was written — and was
+  **not** exercised in this bring-up. AC2 asked for two surfaces and
+  got them; the third is untested here, as it is in
+  [[011-local-e2e]].
 
 ### Startup is slow, and the unit's timeout was right
 
@@ -253,6 +258,15 @@ the measurement in hand rather than in the abstract, and it is a
 follow-up rather than a correction — "runs undamaged" was the claim, and
 it holds.
 
+That follow-up is [[027-qwen-fast-path]], and it prices the trade
+higher than this section guessed: 4-bit weights plus a draft head have
+been measured at **51.5 tok/s** on this hardware class, so the cost of
+BF16 here is ~17x rather than the 4x a bytes-per-token argument alone
+predicts. The missing term is speculative decoding — bandwidth over
+bytes-per-token *times accepted tokens per step* — which is also why the
+same configuration measures 51.5 on code and 18.3 on prose. The two
+endpoints coexist, named by precision; this one is not replaced.
+
 ### Acceptance criteria
 
 AC1, AC2, AC3, AC5, AC6 and AC7 are met. **AC4 is not**: a 262K-token
@@ -264,6 +278,8 @@ tokens/s a full-context generation is a long experiment. It stays open.
 
 - YaRN extension beyond 262K native.
 - Quantized variants. The point of this model on this node is that it
-  needs none.
+  needs none — and [[027-qwen-fast-path]] adds one as a **separate
+  endpoint** rather than as a change here, so this stays out of scope
+  rather than becoming stale.
 - Video input. The checkpoint supports it; the serving surface for it is
   not specified here.
