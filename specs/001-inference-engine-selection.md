@@ -85,7 +85,7 @@ shared SGLang image cannot substitute for it in either direction.
 | Image | Pin | Serves | Floor that set it |
 |---|---|---|---|
 | `Dockerfile.sglang` default | `lmsysorg/sglang:v0.5.16-cu129` | K2.7-Code, GLM-5.2, MiniMax-M3, V4-Pro, V4-Flash-0731 | V4-Flash DSpark ≥0.5.16 ([[017-model-deepseek-v4-flash-0731]]) |
-| `Dockerfile.sglang` K3 build | `lmsysorg/sglang:kimi-k3` (CUDA 13, r580+ driver) | Kimi-K3 only | [[018-model-kimi-k3]] AC4 |
+| `Dockerfile.sglang` K3 build | `lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64` (CUDA 13, r580+ driver, amd64-only) | Kimi-K3 only | [[018-model-kimi-k3]] AC4 |
 | `Dockerfile.vllm` | `vllm/vllm-openai:v0.28.0` | Qwen3.8-27B | sm_120 kernels for GB10 ([[019-gb10-serving-target]]) |
 
 Pins live in the Dockerfiles ([[003-serving-runtime]]); bump
