@@ -338,3 +338,57 @@ speculators:
 		t.Fatalf("speculator = %+v", sp)
 	}
 }
+
+// TestSpeculatorCannotRaiseTheMemoryCeiling: a speculator's flags are
+// appended after the model's own, so they win at the engine. The
+// published reference configuration for this class runs 0.90 while
+// specs/019 caps us at 0.80 — so a copied speculator block is exactly
+// how the ceiling would get bypassed, and only for the operator who
+// selected that one (specs/019 AC2, specs/027 AC5).
+func TestSpeculatorCannotRaiseTheMemoryCeiling(t *testing.T) {
+	m := fastManifest()
+	sp := m.Speculators["dspark"]
+	sp.Args = append(sp.Args, "--mem-fraction-static=0.90")
+	m.Speculators["dspark"] = sp
+
+	err := m.Validate()
+	if err == nil {
+		t.Fatal("a speculator raised the unified-memory fraction past the cap")
+	}
+	for _, want := range []string{`speculator "dspark"`, "0.80", "starves the host"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+
+	// Lowering it is fine: the ceiling is a ceiling, not a fixed value.
+	sp.Args = []string{"--speculative-algorithm=DSPARK", "--mem-fraction-static=0.70"}
+	m.Speculators["dspark"] = sp
+	if err := m.Validate(); err != nil {
+		t.Fatalf("a speculator lowering the fraction was rejected: %v", err)
+	}
+}
+
+// TestFlagValueTakesTheLastOccurrence pins the resolution rule the
+// composition depends on. A speculator overrides a base flag by being
+// appended after it — SGLang's own DFLASH configuration does exactly
+// this to replace --mamba-radix-cache-strategy — so reading the first
+// occurrence would check a value the engine never uses.
+func TestFlagValueTakesTheLastOccurrence(t *testing.T) {
+	args := []string{"--mem-fraction-static=0.80", "--x", "--mem-fraction-static=0.65"}
+	if v, ok := flagValue(args, "--mem-fraction-static"); !ok || v != "0.65" {
+		t.Fatalf("flagValue = %q, %v; want the last occurrence", v, ok)
+	}
+	// Split form resolves the same way.
+	args = []string{"--strategy", "extra_buffer_lazy", "--strategy", "extra_buffer"}
+	if v, ok := flagValue(args, "--strategy"); !ok || v != "extra_buffer" {
+		t.Fatalf("split form = %q, %v", v, ok)
+	}
+	// A valueless final occurrence still reports presence.
+	if v, ok := flagValue([]string{"--k=1", "--k"}, "--k"); !ok || v != "" {
+		t.Fatalf("valueless override = %q, %v", v, ok)
+	}
+	if _, ok := flagValue([]string{"--other"}, "--k"); ok {
+		t.Fatal("absent flag reported present")
+	}
+}

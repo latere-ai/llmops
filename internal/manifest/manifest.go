@@ -446,29 +446,47 @@ func (m *Manifest) validateGB10(fail func(string, ...any)) {
 	if !ok {
 		return
 	}
-	switch v, present := m.FlagValue(frac); {
-	case !present:
-		fail("gpu.type %s requires %s: memory is unified, so the engine default is taken out of the host's memory too",
-			GPUTypeGB10, frac)
-	case v == "":
-		fail("%s requires a value", frac)
-	default:
-		f, err := strconv.ParseFloat(v, 64)
-		switch {
-		case err != nil:
-			fail("%s %q is not a number", frac, v)
-		case f <= 0:
-			fail("%s=%s must be positive", frac, v)
-		case f > gb10MaxMemFraction:
-			fail("%s=%s exceeds %.2f on gpu.type %s: the fraction applies to the whole unified pool, so this starves the host",
-				frac, v, gb10MaxMemFraction, GPUTypeGB10)
-		}
+	// The cap is checked against every way this model can be started,
+	// not just its base arguments. A speculator's flags are appended
+	// after the model's own and therefore win, so one raising the
+	// fraction past the ceiling would otherwise pass validation and
+	// starve the host only when that speculator was selected.
+	checkFraction(m.Args, frac, "", fail)
+	for _, name := range m.SpeculatorNames() {
+		checkFraction(append(slices.Clone(m.Args), m.Speculators[name].Args...), frac, name, fail)
 	}
 
 	if ctx := contextFlags[m.Runtime]; ctx != "" {
 		if _, present := m.FlagValue(ctx); !present {
 			fail("gpu.type %s requires %s so the kv cache size is stated rather than inherited from an engine default",
 				GPUTypeGB10, ctx)
+		}
+	}
+}
+
+// checkFraction enforces the unified-memory ceiling on one combination
+// of arguments (specs/019).
+func checkFraction(args []string, frac, spec string, fail func(string, ...any)) {
+	where := ""
+	if spec != "" {
+		where = fmt.Sprintf("speculator %q: ", spec)
+	}
+	switch v, present := flagValue(args, frac); {
+	case !present:
+		fail("%sgpu.type %s requires %s: memory is unified, so the engine default is taken out of the host's memory too",
+			where, GPUTypeGB10, frac)
+	case v == "":
+		fail("%s%s requires a value", where, frac)
+	default:
+		f, err := strconv.ParseFloat(v, 64)
+		switch {
+		case err != nil:
+			fail("%s%s %q is not a number", where, frac, v)
+		case f <= 0:
+			fail("%s%s=%s must be positive", where, frac, v)
+		case f > gb10MaxMemFraction:
+			fail("%s%s=%s exceeds %.2f on gpu.type %s: the fraction applies to the whole unified pool, so this starves the host",
+				where, frac, v, gb10MaxMemFraction, GPUTypeGB10)
 		}
 	}
 }
@@ -675,11 +693,18 @@ func (m *Manifest) FlagValue(flag string) (string, bool) {
 // flagValue returns the value args give to flag and whether flag is
 // present at all. Both "--k=v" and "--k v" forms resolve; a valueless
 // flag ("--k", or "--k" followed by another flag) reports "", true.
+//
+// A repeated flag resolves to its *last* occurrence, because that is
+// what both engines do with one. It matters as soon as arguments are
+// composed: a speculator's flags are appended after the model's own
+// precisely so they can override, so reading the first occurrence would
+// validate a value the engine is never going to use.
 func flagValue(args []string, flag string) (string, bool) {
+	value, found := "", false
 	for i, a := range args {
 		if k, v, ok := strings.Cut(a, "="); ok {
 			if k == flag {
-				return v, true
+				value, found = v, true
 			}
 			continue
 		}
@@ -687,11 +712,12 @@ func flagValue(args []string, flag string) (string, bool) {
 			continue
 		}
 		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			return args[i+1], true
+			value, found = args[i+1], true
+			continue
 		}
-		return "", true
+		value, found = "", true
 	}
-	return "", false
+	return value, found
 }
 
 // HasArg reports whether args contain flag either as "--k=v" or "--k v".
