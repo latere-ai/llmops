@@ -10,6 +10,9 @@
 //	llmops serve    --manifest <manifest.yaml>
 //	llmops validate <models-dir | manifest.yaml>
 //	llmops install  --manifest <manifest.yaml>
+//	llmops ps
+//	llmops endpoint --harness claude|codex|opencode
+//	llmops run      claude|codex|opencode --model <name>
 //	llmops bench    --url <base> --model <id>
 //	llmops version
 //
@@ -54,6 +57,9 @@ serving
   serve    --manifest <manifest.yaml>          run a model
   validate <models-dir | manifest.yaml>        check manifests and deploys
   install  --manifest <manifest.yaml>          place the unit + manifest on this host
+  ps                                           what is serving on this host
+  endpoint --harness <name>                    config to point a coding agent at a model
+  run      <harness> [-- args]                 launch that agent against it
   bench    --url <base> --model <id>           measure a live endpoint
 
   version                                      build version and commit`
@@ -85,6 +91,12 @@ func run(args []string, out, errw io.Writer) int {
 			return runServing(cmd, rest, out, errw)
 		case "install":
 			return runInstall(rest, out, errw)
+		case "ps":
+			return runPS(rest, out, errw)
+		case "endpoint":
+			return runEndpoint(rest, out, errw)
+		case "run":
+			return runHarness(rest, out, errw)
 		case "bench":
 			return runBench(rest, out, errw)
 		case "version":
@@ -138,7 +150,7 @@ func versionString() string {
 // usage text and the switch cannot drift apart.
 var dispatch = []string{
 	"pull", "freeze", "push", "verify", "list",
-	"serve", "validate", "install", "bench", "version",
+	"serve", "validate", "install", "ps", "endpoint", "run", "bench", "version",
 }
 
 func newMirror(errw io.Writer) *mirror.Mirror {
