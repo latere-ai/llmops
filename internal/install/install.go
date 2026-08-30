@@ -11,6 +11,8 @@
 package install
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -215,11 +217,20 @@ func writeIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
 // that is staging them for another.
 func daemonReload(log io.Writer) error {
 	path, err := exec.LookPath("systemctl")
-	if err != nil {
+	if errors.Is(err, exec.ErrNotFound) {
 		_, _ = fmt.Fprintln(log, "systemctl not found; skipping daemon-reload")
 		return nil
 	}
-	if out, err := exec.Command(path, "daemon-reload").CombinedOutput(); err != nil {
+	if err != nil {
+		// Anything else -- an unreadable directory on PATH, a systemctl
+		// that is present but not executable -- is a host problem worth
+		// reporting rather than a host that simply has no systemd.
+		return fmt.Errorf("look up systemctl: %w", err)
+	}
+	// daemonReload takes no context: it is called from install, which is a
+	// one-shot local command with no deadline to inherit and no caller to
+	// cancel it.
+	if out, err := exec.CommandContext(context.Background(), path, "daemon-reload").CombinedOutput(); err != nil {
 		return fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	_, _ = fmt.Fprintln(log, "systemctl daemon-reload: ok")

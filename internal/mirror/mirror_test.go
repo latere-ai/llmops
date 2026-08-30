@@ -172,7 +172,7 @@ func TestPullFreezeVerifyE2E(t *testing.T) {
 	if _, _, err := m.Pull(context.Background(), "acme/tiny", "", dir); err != nil {
 		t.Fatal(err)
 	}
-	sha, err := m.Freeze("acme/tiny", testSHA, dir)
+	sha, err := m.Freeze(t.Context(), "acme/tiny", testSHA, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestFreezeRejectsIncompleteDir(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "model-00002-of-00002.safetensors")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Freeze("acme/tiny", testSHA, dir); err == nil {
+	if _, err := m.Freeze(t.Context(), "acme/tiny", testSHA, dir); err == nil {
 		t.Fatal("freeze accepted an incomplete directory")
 	}
 	if _, err := os.Stat(filepath.Join(dir, ManifestName)); !os.IsNotExist(err) {
@@ -236,7 +236,7 @@ func TestFreezeRejectsCorruptFile(t *testing.T) {
 	if err := os.WriteFile(p, []byte("weights-part-ONE"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Freeze("acme/tiny", testSHA, dir); err == nil {
+	if _, err := m.Freeze(t.Context(), "acme/tiny", testSHA, dir); err == nil {
 		t.Fatal("freeze accepted a corrupt file")
 	}
 }
@@ -434,13 +434,13 @@ func TestResolveErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
-	if _, err := c.Resolve("acme/missing", ""); err == nil {
+	if _, err := c.Resolve(t.Context(), "acme/missing", ""); err == nil {
 		t.Fatal("404 must error")
 	}
-	if _, err := c.Resolve("acme/empty", ""); err == nil {
+	if _, err := c.Resolve(t.Context(), "acme/empty", ""); err == nil {
 		t.Fatal("missing sha must error")
 	}
-	if _, err := c.Tree("acme/missing", testSHA); err == nil {
+	if _, err := c.Tree(t.Context(), "acme/missing", testSHA); err == nil {
 		t.Fatal("tree 404 must error")
 	}
 }
@@ -451,7 +451,7 @@ func TestTreeEmpty(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
-	if _, err := c.Tree("acme/tiny", testSHA); err == nil {
+	if _, err := c.Tree(t.Context(), "acme/tiny", testSHA); err == nil {
 		t.Fatal("empty tree must error")
 	}
 }
@@ -469,7 +469,7 @@ func TestTreeFollowsPagination(t *testing.T) {
 		"d.safetensors": "dddd",
 	}
 	c := fakeHub(t, "acme/tiny", files, nil, 2)
-	got, err := c.Tree("acme/tiny", testSHA)
+	got, err := c.Tree(t.Context(), "acme/tiny", testSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestTreeRejectsCrossHostPagination(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
-	if _, err := c.Tree("acme/tiny", testSHA); err == nil ||
+	if _, err := c.Tree(t.Context(), "acme/tiny", testSHA); err == nil ||
 		!strings.Contains(err.Error(), "host") {
 		t.Fatalf("cross-host next link not rejected: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestTreeCapsPageCount(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
-	if _, err := c.Tree("acme/tiny", testSHA); err == nil ||
+	if _, err := c.Tree(t.Context(), "acme/tiny", testSHA); err == nil ||
 		!strings.Contains(err.Error(), "too many pages") {
 		t.Fatalf("unbounded pagination not capped: %v", err)
 	}
@@ -671,14 +671,14 @@ func TestGetJSONDecodeError(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
-	if _, err := c.Resolve("acme/tiny", ""); err == nil {
+	if _, err := c.Resolve(t.Context(), "acme/tiny", ""); err == nil {
 		t.Fatal("bad json must error")
 	}
 }
 
 func TestResolveWithRevision(t *testing.T) {
 	c := fakeHub(t, "acme/tiny", testFiles, nil, 0)
-	sha, err := c.Resolve("acme/tiny", "main")
+	sha, err := c.Resolve(t.Context(), "acme/tiny", "main")
 	if err != nil || sha != testSHA {
 		t.Fatalf("Resolve with revision = %s, %v", sha, err)
 	}
@@ -837,7 +837,7 @@ func TestS5cmdStoreErrors(t *testing.T) {
 
 func TestGetJSONConnectionError(t *testing.T) {
 	c := &HFClient{Base: "http://127.0.0.1:1", HTTP: http.DefaultClient}
-	if _, err := c.Resolve("acme/tiny", ""); err == nil {
+	if _, err := c.Resolve(t.Context(), "acme/tiny", ""); err == nil {
 		t.Fatal("connection error must propagate")
 	}
 }

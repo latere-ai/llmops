@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -108,7 +109,7 @@ func probe(name string, port int, timeout time.Duration) (state string, loaded f
 	c := &http.Client{Timeout: timeout}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	resp, err := c.Get(base + "/ready")
+	resp, err := get(c, base+"/ready")
 	if err != nil {
 		return "down", 0, ""
 	}
@@ -136,7 +137,7 @@ func probe(name string, port int, timeout time.Duration) (state string, loaded f
 // that does not answer /v1/models gets the benefit of the doubt: the
 // check exists to catch a wrong model, not to demand a surface.
 func serves(c *http.Client, base, name string) bool {
-	resp, err := c.Get(base + "/v1/models")
+	resp, err := get(c, base+"/v1/models")
 	if err != nil {
 		return true
 	}
@@ -163,7 +164,7 @@ func serves(c *http.Client, base, name string) bool {
 // weightsLoaded pulls llmops_weights_load_seconds out of /metrics — the
 // gauge the shim already exports, so `ps` needs no new plumbing.
 func weightsLoaded(c *http.Client, base string) float64 {
-	resp, err := c.Get(base + "/metrics")
+	resp, err := get(c, base+"/metrics")
 	if err != nil {
 		return 0
 	}
@@ -176,6 +177,21 @@ func weightsLoaded(c *http.Client, base string) float64 {
 		}
 	}
 	return 0
+}
+
+// get issues one probe request.
+//
+// The context is context.Background() on purpose: Discover is a synchronous
+// call with no context in its signature, and each probe is already bounded by
+// the caller's timeout on the http.Client. What is missing is cancellation,
+// and there is nothing here to cancel it from -- `llmops ps` runs to
+// completion or the process goes away with it.
+func get(c *http.Client, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return c.Do(req)
 }
 
 // EndpointFor builds the address a harness should be pointed at.

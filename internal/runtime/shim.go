@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -161,12 +162,16 @@ func (s *Shim) weightsLoaded() bool {
 
 // EngineHealthy polls the engine's own health endpoint (both SGLang and
 // vLLM expose GET /health).
-func (s *Shim) EngineHealthy() bool {
+func (s *Shim) EngineHealthy(ctx context.Context) bool {
 	path := s.HealthPath
 	if path == "" {
 		path = "/health"
 	}
-	resp, err := s.client.Get(s.engine.String() + path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.engine.String()+path, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return false
 	}
@@ -188,7 +193,7 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprintln(w, "ok")
 	case "/ready":
-		if s.weightsLoaded() && s.EngineHealthy() {
+		if s.weightsLoaded() && s.EngineHealthy(r.Context()) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = fmt.Fprintln(w, "ready")
 			return
@@ -196,7 +201,7 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = fmt.Fprintln(w, "loading")
 	case "/metrics":
-		s.metrics(w)
+		s.metrics(r.Context(), w)
 	default:
 		sf, ok := s.surfaces[r.URL.Path]
 		switch {
@@ -414,15 +419,21 @@ func (s *Shim) recordLoss(d ir.Dialect, fields []string) {
 		v.(*atomic.Int64).Add(1)
 	}
 }
-func (s *Shim) metrics(w http.ResponseWriter) {
+func (s *Shim) metrics(ctx context.Context, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	if resp, err := s.client.Get(s.engine.String() + "/metrics"); err == nil {
-		if resp.StatusCode == http.StatusOK {
-			_, _ = io.Copy(w, resp.Body)
-		} else {
-			_, _ = io.Copy(io.Discard, resp.Body)
+	// The scrape is bound to the request that asked for it: a Prometheus
+	// scrape that times out and disconnects used to leave this one running
+	// against the engine with nobody to read the answer.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.engine.String()+"/metrics", nil)
+	if err == nil {
+		if resp, err := s.client.Do(req); err == nil {
+			if resp.StatusCode == http.StatusOK {
+				_, _ = io.Copy(w, resp.Body)
+			} else {
+				_, _ = io.Copy(io.Discard, resp.Body)
+			}
+			_ = resp.Body.Close()
 		}
-		_ = resp.Body.Close()
 	}
 	_, _ = fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")

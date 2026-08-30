@@ -1001,11 +1001,11 @@ func TestShimHealthPathOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if shim.EngineHealthy() {
+	if shim.EngineHealthy(t.Context()) {
 		t.Fatal("default /health should be 404 here")
 	}
 	shim.HealthPath = "/custom-health"
-	if !shim.EngineHealthy() {
+	if !shim.EngineHealthy(t.Context()) {
 		t.Fatal("custom health path not used")
 	}
 }

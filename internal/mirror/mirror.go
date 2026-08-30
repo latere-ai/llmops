@@ -62,11 +62,11 @@ func (m *Mirror) logf(format string, a ...any) {
 // Pull downloads repo@revision into dir and verifies it against the HF
 // tree. Idempotent: verified local files are not re-downloaded.
 func (m *Mirror) Pull(ctx context.Context, repo, revision, dir string) (sha string, files []FileEntry, err error) {
-	sha, err = m.HF.Resolve(repo, revision)
+	sha, err = m.HF.Resolve(ctx, repo, revision)
 	if err != nil {
 		return "", nil, err
 	}
-	tree, err := m.HF.Tree(repo, sha)
+	tree, err := m.HF.Tree(ctx, repo, sha)
 	if err != nil {
 		return "", nil, err
 	}
@@ -154,12 +154,12 @@ func (m *Mirror) Push(repo, sha, dir string, files []FileEntry, store Store) err
 // weights will be read from. A bare-metal host has no bucket to push
 // to, but still needs the pinned revision and per-file checksums that
 // make the freeze guarantee mean something.
-func (m *Mirror) Freeze(repo, revision, dir string) (string, error) {
-	sha, err := m.HF.Resolve(repo, revision)
+func (m *Mirror) Freeze(ctx context.Context, repo, revision, dir string) (string, error) {
+	sha, err := m.HF.Resolve(ctx, repo, revision)
 	if err != nil {
 		return "", err
 	}
-	tree, err := m.HF.Tree(repo, sha)
+	tree, err := m.HF.Tree(ctx, repo, sha)
 	if err != nil {
 		return "", err
 	}

@@ -131,7 +131,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	shim.HealthPath = os.Getenv("LLMOPS_ENGINE_HEALTH_PATH")
 
 	// Expose /healthz (and a not-ready /ready) while weights load.
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", opts.Port))
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", fmt.Sprintf(":%d", opts.Port))
 	if err != nil {
 		return err
 	}

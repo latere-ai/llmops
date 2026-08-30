@@ -4,8 +4,10 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -145,7 +147,18 @@ func ensureFile(dir string, f mirror.FileEntry, store mirror.Store, log io.Write
 
 func fileMatches(local string, f mirror.FileEntry) (bool, error) {
 	fi, err := os.Stat(local)
-	if err != nil || fi.Size() != f.Size {
+	if errors.Is(err, fs.ErrNotExist) {
+		// Nothing cached yet, which is a miss and not a failure.
+		return false, nil
+	}
+	if err != nil {
+		// An entry that is present but cannot be stat'd -- a permission
+		// or a filesystem error -- was reported as a plain miss, so the
+		// verification after the download reported "hash mismatch" for a
+		// file it had never managed to look at.
+		return false, fmt.Errorf("stat %s: %w", local, err)
+	}
+	if fi.Size() != f.Size {
 		return false, nil
 	}
 	sum, err := mirror.FileSHA256(local)

@@ -37,7 +37,13 @@ func runBench(rest []string, out, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	data, _ := json.MarshalIndent(rep, "", "  ")
+	// The report carries computed float64 rates, and json refuses NaN and
+	// +/-Inf. Discarding the error here wrote an empty file or printed a
+	// blank line and reported success.
+	data, err := json.MarshalIndent(rep, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode report: %w", err)
+	}
 	if *outPath != "" {
 		if err := os.WriteFile(*outPath, data, 0o644); err != nil {
 			return err

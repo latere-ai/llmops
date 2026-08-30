@@ -1,6 +1,7 @@
 package mirror
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -29,8 +30,18 @@ func NewHFClient() *HFClient {
 	return &HFClient{Base: "https://huggingface.co", HTTP: http.DefaultClient}
 }
 
-func (c *HFClient) getJSON(path string, out any) error {
-	resp, err := c.HTTP.Get(c.Base + path)
+// get issues one Hub request under the caller's context, so a cancelled
+// `llmops weights` stops the metadata fetch instead of running it out.
+func (c *HFClient) get(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return c.HTTP.Do(req)
+}
+
+func (c *HFClient) getJSON(ctx context.Context, path string, out any) error {
+	resp, err := c.get(ctx, c.Base+path)
 	if err != nil {
 		return err
 	}
@@ -51,7 +62,7 @@ const maxTreePages = 1000
 // `Link: <url>; rel="next"` header (huggingface_hub paginates
 // list_repo_tree the same way); without following it a caller silently
 // sees only the first page.
-func getJSONArrayPaged[T any](c *HFClient, path string) ([]T, error) {
+func getJSONArrayPaged[T any](ctx context.Context, c *HFClient, path string) ([]T, error) {
 	base, err := url.Parse(c.Base)
 	if err != nil {
 		return nil, fmt.Errorf("parse base %q: %w", c.Base, err)
@@ -62,7 +73,7 @@ func getJSONArrayPaged[T any](c *HFClient, path string) ([]T, error) {
 		if page >= maxTreePages {
 			return nil, fmt.Errorf("GET %s: too many pages (>%d)", path, maxTreePages)
 		}
-		items, link, err := getJSONArrayPage[T](c, next, path)
+		items, link, err := getJSONArrayPage[T](ctx, c, next, path)
 		if err != nil {
 			return nil, err
 		}
@@ -77,8 +88,8 @@ func getJSONArrayPaged[T any](c *HFClient, path string) ([]T, error) {
 
 // getJSONArrayPage fetches one absolute page URL, returning its decoded
 // items and its raw Link header. path is only used for error messages.
-func getJSONArrayPage[T any](c *HFClient, rawURL, path string) ([]T, string, error) {
-	resp, err := c.HTTP.Get(rawURL)
+func getJSONArrayPage[T any](ctx context.Context, c *HFClient, rawURL, path string) ([]T, string, error) {
+	resp, err := c.get(ctx, rawURL)
 	if err != nil {
 		return nil, "", err
 	}
@@ -124,7 +135,7 @@ func nextPageURL(link string, base *url.URL) (string, error) {
 
 // Resolve returns the commit SHA for a repo revision (branch, tag, or
 // SHA; empty means the default branch).
-func (c *HFClient) Resolve(repo, revision string) (string, error) {
+func (c *HFClient) Resolve(ctx context.Context, repo, revision string) (string, error) {
 	p := "/api/models/" + repo
 	if revision != "" {
 		p += "/revision/" + url.PathEscape(revision)
@@ -132,7 +143,7 @@ func (c *HFClient) Resolve(repo, revision string) (string, error) {
 	var info struct {
 		SHA string `json:"sha"`
 	}
-	if err := c.getJSON(p, &info); err != nil {
+	if err := c.getJSON(ctx, p, &info); err != nil {
 		return "", fmt.Errorf("resolve %s@%s: %w", repo, revision, err)
 	}
 	if info.SHA == "" {
@@ -155,9 +166,9 @@ type treeEntry struct {
 // cursor-paginated (1000 entries per page), so every page is followed:
 // a partial tree would propagate into the manifest and make verify pass
 // on an incomplete mirror.
-func (c *HFClient) Tree(repo, sha string) ([]TreeFile, error) {
+func (c *HFClient) Tree(ctx context.Context, repo, sha string) ([]TreeFile, error) {
 	p := "/api/models/" + repo + "/tree/" + sha + "?recursive=true"
-	raw, err := getJSONArrayPaged[treeEntry](c, p)
+	raw, err := getJSONArrayPaged[treeEntry](ctx, c, p)
 	if err != nil {
 		return nil, fmt.Errorf("tree %s@%s: %w", repo, sha, err)
 	}

@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -151,7 +152,10 @@ func (e *s5cmdExitError) Error() string {
 func (e *s5cmdExitError) Unwrap() error { return e.cause }
 
 func (s *S5cmdStore) run(args ...string) ([]byte, error) {
-	out, err := exec.Command("s5cmd", args...).Output()
+	// The Store interface carries no context, so there is none to inherit
+	// here. s5cmd exits on its own; nothing in the process waits on a
+	// deadline this could honour.
+	out, err := exec.CommandContext(context.Background(), "s5cmd", args...).Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {

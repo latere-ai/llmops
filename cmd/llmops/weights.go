@@ -42,7 +42,7 @@ func runWeights(cmd string, rest []string, out, errw io.Writer) error {
 		if rev == "" {
 			return fmt.Errorf("freeze requires a pinned revision: <hf_repo>@<sha>")
 		}
-		sha, err := newMirror(errw).Freeze(repo, rev, *dir)
+		sha, err := newMirror(errw).Freeze(context.Background(), repo, rev, *dir)
 		if err != nil {
 			return err
 		}

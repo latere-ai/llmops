@@ -153,7 +153,7 @@ func percentile(sorted []time.Duration, p int) time.Duration {
 
 // oneRequest streams one chat completion and records TTFT + chunk count.
 func oneRequest(ctx context.Context, client *http.Client, cfg Config) sample {
-	body, _ := json.Marshal(map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"model":      cfg.Model,
 		"stream":     true,
 		"max_tokens": cfg.MaxTokens,
@@ -163,6 +163,9 @@ func oneRequest(ctx context.Context, client *http.Client, cfg Config) sample {
 		// available here counts transport events.
 		"stream_options": map[string]any{"include_usage": true},
 	})
+	if err != nil {
+		return sample{err: fmt.Errorf("encode request: %w", err)}
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", cfg.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return sample{err: err}
