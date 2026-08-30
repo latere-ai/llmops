@@ -289,6 +289,33 @@ only carries model-specific flags.
 | `--speculator` | the manifest's `default_speculator` | which draft head to serve with; `none` disables speculation. Resolved before any weights are touched, and reported on every response as `X-LLMOps-Speculator` |
 | `LLMOPS_ENGINE_CMD` | unset | replace the engine command (`{model}`/`{port}` substituted) — local/dev substitution, e.g. mlx |
 | `LLMOPS_ENGINE_HEALTH_PATH` | `/health` | engine health endpoint, for engines that differ |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP collector to export traces, metrics and logs to. Unset, `serve` logs locally and exports nothing |
+
+### Telemetry
+
+`llmops serve` exports traces, metrics and logs over OTLP. Point it at a
+collector with the standard environment and everything else follows from
+it:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example:4318
+OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20...   # percent-encoded; %20 is the space
+OTEL_TRACES_SAMPLER_ARG=0.2                             # head sampling ratio
+```
+
+With the endpoint unset the exporters are inert and logs stay on stderr,
+so a laptop or a bare-metal host needs no collector to run.
+
+What you get per request: a server span for the caller's request and a
+client span for the engine hop inside it, so a slow completion says
+which half was slow. Health and readiness probes and `/metrics` are not
+traced, since the kubelet and `llmops ps` poll them constantly and would
+bury everything else.
+
+`/metrics` stays a Prometheus text endpoint because `llmops ps` reads
+`llmops_weights_load_seconds` from it. The same three facts also export
+as OTLP instruments: `llmops.weights.load.duration`,
+`llmops.speculator.info` and `llmops.dialect.loss`.
 
 ### Deploy manifest (`deploy/<name>/lws.yaml`)
 
