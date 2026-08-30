@@ -15,6 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	otelapi "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
 	"latere.ai/x/pkg/llmdialect"
 	"latere.ai/x/pkg/llmdialect/anthropic"
 	"latere.ai/x/pkg/llmdialect/ir"
@@ -41,6 +45,11 @@ type Shim struct {
 	weightsSecs atomic.Value // float64; 0 while loading
 	lossCount   sync.Map     // lossKey -> *atomic.Int64
 
+	// lossTotal is the OTel counterpart of the lossCount map. It is set by
+	// registerMetrics before the shim serves and read on the request path,
+	// so it is nil for a shim nobody registered instruments for.
+	lossTotal metric.Int64Counter
+
 	// SystemPrompt, when set, is enforced on every chat request —
 	// both dialect surfaces (specs/003).
 	SystemPrompt *manifest.SystemPrompt
@@ -63,6 +72,67 @@ type Shim struct {
 	// renaming it would break every caller's configuration whenever an
 	// operator restarted with a different draft head.
 	Speculator string
+}
+
+// meterName scopes the shim's instruments. It is the import path of the
+// package that owns them, which is what an instrumentation scope is for.
+const meterName = "github.com/latere-ai/llmops/internal/runtime"
+
+// registerMetrics publishes the shim's own facts as OTel instruments and
+// returns the callback's unregister function.
+//
+// The Prometheus text endpoint stays. It is not a scrape target: nothing
+// in the fleet runs Prometheus, but `llmops ps` reads
+// llmops_weights_load_seconds out of it on every invocation
+// (internal/harness/discover.go), so it is a first-party API of this CLI.
+// Removing it would break `ps` and the local e2e script to save a
+// handler nobody was paying for. These instruments are how the same
+// facts reach an OTLP collector, which is what the text endpoint cannot
+// do.
+//
+// Request rate, latency and status are not here: otelhttp already
+// records http.server.request.duration for every request otel.Handler
+// wraps, and a second copy under a different name would be two numbers
+// for one fact.
+//
+// Call it after the shim's fields are set and before it serves. The
+// callback reads those fields at collection time.
+func (s *Shim) registerMetrics() (func() error, error) {
+	m := otelapi.GetMeterProvider().Meter(meterName)
+
+	weights, err := m.Float64ObservableGauge("llmops.weights.load.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time spent preparing weights before engine start."))
+	if err != nil {
+		return nil, err
+	}
+	// A label-only gauge, so a throughput figure can be broken down by the
+	// draft head that produced it (specs/027): the same endpoint answers
+	// at very different rates depending on which one is active.
+	spec, err := m.Int64ObservableGauge("llmops.speculator.info",
+		metric.WithDescription("The draft-model configuration the engine is serving with."))
+	if err != nil {
+		return nil, err
+	}
+	loss, err := m.Int64Counter("llmops.dialect.loss",
+		metric.WithDescription("Request fields a caller's dialect could not carry."))
+	if err != nil {
+		return nil, err
+	}
+	s.lossTotal = loss
+
+	reg, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		o.ObserveFloat64(weights, s.weightsSecs.Load().(float64))
+		if s.Speculator != "" {
+			o.ObserveInt64(spec, 1, metric.WithAttributes(
+				attribute.String("speculator", s.Speculator)))
+		}
+		return nil
+	}, weights, spec)
+	if err != nil {
+		return nil, err
+	}
+	return reg.Unregister, nil
 }
 
 // SpeculatorHeader names the active draft-model configuration, or
@@ -442,6 +512,11 @@ func (s *Shim) recordLoss(d ir.Dialect, fields []string) {
 	for _, f := range fields {
 		v, _ := s.lossCount.LoadOrStore(lossKey{d, f}, new(atomic.Int64))
 		v.(*atomic.Int64).Add(1)
+		if s.lossTotal != nil {
+			s.lossTotal.Add(context.Background(), 1, metric.WithAttributes(
+				attribute.String("dialect", string(d)),
+				attribute.String("field", f)))
+		}
 	}
 }
 func (s *Shim) metrics(ctx context.Context, w http.ResponseWriter) {

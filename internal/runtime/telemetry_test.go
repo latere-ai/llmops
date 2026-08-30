@@ -18,9 +18,13 @@ import (
 
 	otelapi "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+
+	"latere.ai/x/pkg/llmdialect/ir"
 )
 
 // TestServeLogsLifecycleStructured asserts the serve lifecycle reaches the
@@ -378,4 +382,60 @@ func traceIDOf(traceparent string) string {
 		return ""
 	}
 	return parts[1]
+}
+
+// TestShimExportsGaugesAsInstruments asserts the llmops_* facts reach an OTel
+// meter as well as the Prometheus text endpoint. The text endpoint stays
+// because `llmops ps` reads llmops_weights_load_seconds out of it, so both
+// have to hold at once.
+func TestShimExportsGaugesAsInstruments(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otelapi.GetMeterProvider()
+	otelapi.SetMeterProvider(mp)
+	t.Cleanup(func() {
+		_ = mp.Shutdown(context.Background())
+		otelapi.SetMeterProvider(prev)
+	})
+
+	s, err := NewShim("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Speculator = "eagle"
+	unregister, err := s.registerMetrics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unregister() }()
+
+	s.SetWeightsLoaded(39200 * time.Millisecond)
+	s.recordLoss(ir.DialectAnthropicMessages, []string{"top_k"})
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			got[m.Name] = true
+		}
+	}
+	for _, want := range []string{
+		"llmops.weights.load.duration",
+		"llmops.speculator.info",
+		"llmops.dialect.loss",
+	} {
+		if !got[want] {
+			t.Errorf("instrument %q not collected; got %v", want, got)
+		}
+	}
+
+	// The text endpoint is the CLI's own API and must still answer.
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "llmops_weights_load_seconds 39.2") {
+		t.Fatalf("text endpoint lost the gauge llmops ps reads:\n%s", rec.Body.String())
+	}
 }

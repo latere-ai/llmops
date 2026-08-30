@@ -155,6 +155,14 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	shim.SystemPrompt = m.SystemPrompt
 	shim.HealthPath = os.Getenv("LLMOPS_ENGINE_HEALTH_PATH")
 
+	// After the shim's fields are set and before it serves: the metric
+	// callback reads them when a collection runs.
+	unregister, err := shim.registerMetrics()
+	if err != nil {
+		return fmt.Errorf("register metrics: %w", err)
+	}
+	defer func() { _ = unregister() }()
+
 	// Expose /healthz (and a not-ready /ready) while weights load.
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", fmt.Sprintf(":%d", opts.Port))
 	if err != nil {
