@@ -20,6 +20,7 @@ import (
 	"latere.ai/x/pkg/llmdialect/ir"
 	"latere.ai/x/pkg/llmdialect/openaichat"
 	"latere.ai/x/pkg/llmdialect/openairesp"
+	"latere.ai/x/pkg/otel"
 
 	"github.com/latere-ai/llmops/internal/manifest"
 )
@@ -78,11 +79,19 @@ func NewShim(engineURL string) (*Shim, error) {
 	}
 	proxy := httputil.NewSingleHostReverseProxy(u)
 	proxy.FlushInterval = -1 // flush every write: token streaming
+	// The engine hop is where the time goes. Every one of the three ways
+	// a request reaches it is instrumented, or the caller's trace stops
+	// at this process and the engine's share of the latency is invisible.
+	//
+	// The reverse proxy is the one that matters most: a caller speaking
+	// the engine's own dialect with no system prompt to inject is
+	// proxied, not forwarded, and that is the default deployment.
+	proxy.Transport = otel.Transport(nil)
 	s := &Shim{
 		engine:    u,
 		proxy:     proxy,
-		client:    &http.Client{Timeout: 5 * time.Second},
-		inference: &http.Client{},
+		client:    &http.Client{Transport: otel.Transport(nil), Timeout: 5 * time.Second},
+		inference: &http.Client{Transport: otel.Transport(nil)},
 	}
 	s.weightsSecs.Store(float64(0))
 	if err := s.setDialect(manifest.EngineDialectOpenAIChat); err != nil {

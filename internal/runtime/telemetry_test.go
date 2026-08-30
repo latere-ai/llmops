@@ -160,16 +160,14 @@ func installTracing(t *testing.T) *tracetest.SpanRecorder {
 	return rec
 }
 
-// serveForTracing starts Serve against a fake engine and returns the shim's
-// base URL. The tracer provider must already be installed: otelhttp resolves
-// it when the handler is built, not when a request arrives.
-func serveForTracing(t *testing.T) string {
+// serveForTracing starts Serve against engine and returns the shim's base URL.
+// The tracer provider must already be installed: otelhttp resolves it when the
+// handler is built, not when a request arrives.
+func serveForTracing(t *testing.T, engine *httptest.Server) string {
 	t.Helper()
 	store := seedStore(t, weights)
 	m := testManifest(store.Root)
 
-	healthy := true
-	engine := fakeEngine(t, &healthy)
 	engineURL, err := url.Parse(engine.URL)
 	if err != nil {
 		t.Fatalf("parse engine URL: %v", err)
@@ -212,7 +210,8 @@ func serveForTracing(t *testing.T) string {
 // process with no provider, where nothing is recorded either way.
 func TestServeTracesRequestsAndSkipsProbes(t *testing.T) {
 	rec := installTracing(t)
-	base := serveForTracing(t)
+	healthy := true
+	base := serveForTracing(t, fakeEngine(t, &healthy))
 
 	resp, err := http.Post(base+"/v1/chat/completions", "application/json",
 		strings.NewReader(`{"model":"tiny","messages":[]}`))
@@ -274,4 +273,109 @@ func TestRouteTemplateBoundsCardinality(t *testing.T) {
 			t.Errorf("RouteTemplate(%q) = %q, want %q", path, got, want)
 		}
 	}
+}
+
+// traceEngine stands in for the inference engine and keeps the headers of
+// every request the shim sent it.
+type traceEngine struct {
+	mu      sync.Mutex
+	headers map[string]http.Header
+}
+
+func newTraceEngine(t *testing.T) (*httptest.Server, *traceEngine) {
+	t.Helper()
+	e := &traceEngine{headers: map[string]http.Header{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.mu.Lock()
+		e.headers[r.URL.Path] = r.Header.Clone()
+		e.mu.Unlock()
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny",`+
+			`"choices":[{"index":0,"message":{"role":"assistant","content":"hi"},`+
+			`"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, e
+}
+
+func (e *traceEngine) traceparent(path string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.headers[path].Get("traceparent")
+}
+
+// TestShimPropagatesTraceContextUpstream is the end-to-end claim: a caller's
+// request produces a server span, the engine hop produces a client span in the
+// same trace, and the engine receives a traceparent naming it. Both routes to
+// the engine are covered, because the reverse proxy carries the default
+// deployment and the forwarding client carries the translated surfaces.
+func TestShimPropagatesTraceContextUpstream(t *testing.T) {
+	rec := installTracing(t)
+	engine, recorded := newTraceEngine(t)
+	base := serveForTracing(t, engine)
+
+	for _, path := range []string{"/v1/chat/completions", "/v1/messages"} {
+		resp, err := http.Post(base+path, "application/json",
+			strings.NewReader(`{"model":"tiny","max_tokens":16,`+
+				`"messages":[{"role":"user","content":"hi"}]}`))
+		if err != nil {
+			t.Fatalf("POST %s: %v", path, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
+
+	// The engine speaks OpenAI chat, so both caller surfaces land on the
+	// same upstream path: one proxied, one forwarded after translation.
+	tp := recorded.traceparent("/v1/chat/completions")
+	if tp == "" {
+		t.Fatal("engine received no traceparent: the upstream hop starts a new trace")
+	}
+
+	// Group by trace: each caller request is its own trace, and the engine
+	// hop must land inside the trace its caller opened.
+	//
+	// Client spans without a parent are the engine health poll, which runs
+	// under the skipped /ready path and so has no caller to belong to.
+	serverTraces := map[string]int{}
+	for _, sp := range rec.Ended() {
+		if sp.SpanKind() == trace.SpanKindServer {
+			serverTraces[sp.SpanContext().TraceID().String()] = 0
+		}
+	}
+	if len(serverTraces) != 2 {
+		t.Fatalf("server spans = %d, want one per caller request", len(serverTraces))
+	}
+	for _, sp := range rec.Ended() {
+		if sp.SpanKind() != trace.SpanKindClient || !sp.Parent().IsValid() {
+			continue
+		}
+		id := sp.SpanContext().TraceID().String()
+		if _, ok := serverTraces[id]; !ok {
+			t.Fatalf("client span trace %s belongs to no server span: the hop is not linked", id)
+		}
+		serverTraces[id]++
+	}
+	for id, n := range serverTraces {
+		if n == 0 {
+			t.Fatalf("trace %s has a server span but no engine hop", id)
+		}
+	}
+	if _, ok := serverTraces[traceIDOf(tp)]; !ok {
+		t.Fatalf("traceparent %q carries no trace the shim opened (%v)", tp, serverTraces)
+	}
+}
+
+// traceIDOf pulls the trace id out of a W3C traceparent header
+// (version-traceid-spanid-flags).
+func traceIDOf(traceparent string) string {
+	parts := strings.Split(traceparent, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
 }
