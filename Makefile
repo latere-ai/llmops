@@ -3,7 +3,7 @@ GO ?= go
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize
+.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config
 
 build:
 	$(GO) build ./...
@@ -88,6 +88,12 @@ vet:
 # gate would then pass silently.
 lint-modernize:
 	@$(GO) tool lateregate modernize
+
+# .golangci.yml is generated: golangci-lint cannot inherit a shared config, so
+# it is rendered from latere.ai/x/ci-gate and checked here. Regenerate with
+# `go tool lateregate golangci -write`.
+lint-config:
+	@$(GO) tool lateregate golangci
 
 # CI-runnable e2e: full pull→push→verify and serve
 # serve→ready→metrics paths against fakes (no GPU, no network).
