@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -34,7 +35,13 @@ type Options struct {
 	// with. Empty takes the manifest's default; manifest.SpeculatorNone
 	// serves without speculation (specs/027).
 	Speculator string
-	Log        io.Writer
+	// Log is the byte stream the engine's stdout and stderr are wired to,
+	// and the destination of the weight-preparation progress lines. It
+	// stays an io.Writer because exec.Cmd needs one.
+	Log io.Writer
+	// Logger records the events of the serve lifecycle. Defaults to the
+	// slog default, which otel.Bootstrap has replaced in the CLI.
+	Logger *slog.Logger
 }
 
 func (o *Options) defaults() {
@@ -43,6 +50,9 @@ func (o *Options) defaults() {
 	o.CacheRoot = expandHome(cmp.Or(o.CacheRoot, "/cache"))
 	if o.Log == nil {
 		o.Log = os.Stderr
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
 	}
 }
 
@@ -158,8 +168,11 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 		return err
 	}
 	shim.SetWeightsLoaded(time.Since(start))
-	_, _ = fmt.Fprintf(opts.Log, "weights ready in %.1fs, launching %s (speculator: %s)\n",
-		time.Since(start).Seconds(), m.Runtime, spec.Name)
+	opts.Logger.InfoContext(ctx, "weights ready, launching engine",
+		"model", m.Name,
+		"seconds", time.Since(start).Seconds(),
+		"runtime", m.Runtime,
+		"speculator", spec.Name)
 
 	args := opts.EngineCmd
 	if len(args) == 0 {

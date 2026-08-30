@@ -5,11 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
+
+	"latere.ai/x/pkg/otel"
 
 	"github.com/latere-ai/llmops/internal/deploycheck"
 	"github.com/latere-ai/llmops/internal/manifest"
@@ -60,6 +64,37 @@ func runServing(cmd string, rest []string, out, errw io.Writer) error {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
+
+		// Telemetry is wired here rather than inside runtime.Serve: the
+		// process owns the exporter lifetime, and runtime.Serve is called
+		// directly by tests that must not install a global provider.
+		//
+		// Bootstrap is a noop exporter-side unless OTEL_EXPORTER_OTLP_ENDPOINT
+		// is set, so a bare-metal host with no collector pays nothing but the
+		// local handler.
+		logger, shutdown, err := otel.Bootstrap(ctx, otel.Config{
+			ServiceName: "llmops",
+			Version:     otel.Version(version),
+			// The local handler writes to the command's error stream, which
+			// is os.Stderr in production and a buffer under test. Letting it
+			// default to os.Stderr would take the capture seam away.
+			Stdout: slog.NewJSONHandler(errw, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		})
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := shutdown(ctx); err != nil {
+				logger.Error("telemetry shutdown", "err", err)
+			}
+		}()
+		if err != nil {
+			// The OTLP log bridge failed; the logger still works, so serving
+			// continues rather than refusing to start over telemetry.
+			logger.Warn("telemetry log export unavailable", "err", err)
+		}
+		opts.Logger = logger
+		logger.InfoContext(ctx, "serving",
+			"manifest", *path, "model", m.Name, "port", *port, "engine_port", *enginePort)
 		return runtime.Serve(ctx, m, opts)
 	}
 	return fmt.Errorf("unknown serving command %q", cmd)

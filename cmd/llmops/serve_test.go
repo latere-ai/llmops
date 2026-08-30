@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -207,5 +208,22 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), "prepare weights") {
 		t.Fatalf("expected prep failure, got: %s", errw.String())
+	}
+	// otel.Bootstrap owns the logger for the serve path, and its local
+	// handler must write to the command's error stream: defaulting it to
+	// os.Stderr would take the capture seam away from every caller.
+	var rec map[string]any
+	found := false
+	for line := range strings.SplitSeq(errw.String(), "\n") {
+		if json.Unmarshal([]byte(line), &rec) == nil && rec["msg"] == "serving" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no structured \"serving\" record on the error stream:\n%s", errw.String())
+	}
+	if rec["model"] == nil || rec["port"] == nil {
+		t.Fatalf("serving record missing fields: %v", rec)
 	}
 }

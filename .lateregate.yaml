@@ -39,12 +39,28 @@ modernize:
   disable: [newexpr, errorsastype]
 
 depcheck:
-  # The CLI reaches two modules. That is a small footprint worth keeping: one
-  # upstream import arrives on the next `go get`, and the first symptom is
-  # otherwise a slower build.
+  # The CLI's reach is decided here rather than discovered later: one upstream
+  # import arrives on the next `go get`, and the first symptom is otherwise a
+  # slower build.
+  #
+  # The OpenTelemetry block below is one decision, not eleven. `llmops serve`
+  # sits on the inference path and exports through latere.ai/x/pkg/otel, whose
+  # OTLP exporters pull the protobuf, gRPC and retry modules with them. The
+  # entries are listed separately so a module that arrives for some other
+  # reason still has to be admitted for that reason.
   packages:
     github.com/latere-ai/llmops/cmd/llmops:
       decision: the CLI ships as a single static binary
       allow:
         gopkg.in/yaml.v3: model manifests and deploy artifacts are YAML
         latere.ai/x/pkg: the shared platform packages
+        go.opentelemetry.io: the OTLP SDK and HTTP instrumentation behind latere.ai/x/pkg/otel
+        google.golang.org: the protobuf and gRPC encoding the OTLP exporters write
+        golang.org/x: HTTP/2 and text handling the OTLP exporters reach through
+        github.com/cenkalti/backoff/v5: OTLP exporter retry backoff
+        github.com/cespare/xxhash/v2: attribute-set hashing in the OTel SDK
+        github.com/felixge/httpsnoop: response capture in otelhttp
+        github.com/go-logr/logr: the logging interface the OTel SDK reports through
+        github.com/go-logr/stdr: the OTel SDK's default logr sink
+        github.com/google/uuid: OTLP log record identifiers
+        github.com/grpc-ecosystem/grpc-gateway/v2: transitive to the OTLP proto definitions
