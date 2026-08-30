@@ -151,6 +151,46 @@ they are given rather than staying under it, so the fraction sets actual
 consumption: a model needing less should ask for less. See
 [[022-model-qwen3.8-27b]].
 
+### 26 GB is not enough, measured the hard way
+
+**2026-08-29: a manifest set to the 0.80 ceiling took the host down.**
+Starting [[027-qwen-fast-path]] at `--mem-fraction-static=0.80` made the
+box stop responding during model load — no SSH, no ICMP, and no reply to
+a WireGuard-layer probe while every other peer answered — and it did not
+recover on its own.
+
+The term the derivation above missed is the second one:
+
+```
+  0.80 x 128 GB   = 102.4 GB   engine
++                    23.0 GB   weights still in page cache,
+                               written 31 seconds earlier
+  ------------------------------------------------------------
+                    125.4 GB   of 128 GB, ~2.6 GB left to the kernel
+```
+
+The reserve is not spare capacity. It absorbs page cache, and a model
+that has just been fetched or verified leaves its entire checkpoint
+sitting in it. So the reserve must cover the OS **plus the largest
+checkpoint this host reads**, not the OS alone.
+
+Two corrections follow:
+
+- **The ceiling is a rail, not a recommendation.** A manifest set to the
+  maximum permitted value is a manifest with no margin left.
+  [[022-model-qwen3.8-27b]] asks for 0.65 and has served for hours;
+  [[027-qwen-fast-path]] now asks for the same.
+- **Unified memory fails differently.** On a discrete-HBM node this is
+  an OOM kill: the engine dies, the host survives, an operator reads the
+  log. Here the kernel cannot reclaim device memory, so it stalls along
+  with everything else — and the failure removes the machine you would
+  have diagnosed it from.
+
+Whether the enforced ceiling should drop below 0.80 is deliberately left
+open: one incident is one data point and the kernel log has not been
+read yet. What is already settled is that no manifest sits at the
+ceiling.
+
 ### GPU memory is not observable through the device
 
 [[010-observability-bench]] assumes GPU memory metrics come from the
@@ -214,11 +254,16 @@ flowchart LR
   `kv_cache` term is stated rather than inherited from an engine
   default.
 - **AC4** The 26 GB host reserve implied by the 0.80 ceiling holds under
-  a real workload, measured by [[022-model-qwen3.8-27b]] AC5. The
-  fraction's behaviour itself is already settled: measured 2026-08-28,
-  vLLM at `--gpu-memory-utilization 0.30` held 37,651 MiB on this class,
+  a real workload. **Answered, and it does not hold**: at 0.80 with a
+  freshly written 23 GB checkpoint still in page cache, the host was
+  left ~2.6 GB and stopped responding (2026-08-29, above). The
+  fraction's behaviour was already settled: measured 2026-08-28, vLLM at
+  `--gpu-memory-utilization 0.30` held 37,651 MiB on this class,
   confirming the fraction applies to the full 128 GB unified pool and
   that the engine fills it.
+- **AC4b** No manifest sets the memory fraction to the enforced ceiling.
+  Whether the ceiling itself should drop stays open until the kernel log
+  from that incident is read.
 - **AC4a** The engine's compiled arch list is re-checked on every engine
   version bump, and the bump is rejected if `sm_120` is absent. This
   class runs on binary compatibility rather than a targeted build, so

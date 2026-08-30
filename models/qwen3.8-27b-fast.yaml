@@ -38,15 +38,33 @@ context_max: 262144
 # endpoint measured at 18.23 GiB; the checkpoint declares FP8 KV
 # anyway, so the flag only keeps it if the quantization changes.
 #
-# --mem-fraction-static is 0.80, the ceiling specs/019 enforces. The
-# published reference for this hardware runs 0.90 and reports 0.95
-# taking the box down. Ours is derived rather than measured
-# (specs/019 AC3a), so raising it is specs/027 AC5 — a measurement,
-# not a value copied from someone else's box.
+# --mem-fraction-static is 0.65, matching the fraction 022 has served
+# at for hours on this box. It is NOT the 0.80 ceiling specs/019
+# enforces: that ceiling is a rail, not a recommendation, and setting a
+# manifest to it took the host down on 2026-08-29.
+#
+# The arithmetic, on a pool the CPU and GPU share:
+#
+#   0.80 x 128 GB = 102.4 GB to the engine, 25.6 GB left to the host
+#   + 23 GB of weights still in page cache, written 31 s earlier
+#   = 125.4 GB of 128 GB, and the kernel cannot reclaim device memory
+#
+# The engine fills whatever fraction it is given — measured in
+# specs/019, vLLM at 0.30 held 37.6 GB — so the 23 GB of NVFP4 weights
+# do not make a large fraction safe. They make it emptier, not smaller.
+#
+# The published reference for this hardware runs 0.90, but inside a
+# tuned image that also bounds the GDN state pool and the concurrent
+# request count. Copying one number out of that configuration is what
+# specs/027 AC5 exists to stop.
 args:
   - --trust-remote-code
   - --context-length=262144
-  - --mem-fraction-static=0.80
+  - --mem-fraction-static=0.65
+  # An unbounded scheduler sizes its queue and its GDN state pool from
+  # the memory fraction. One agent at a time needs neither, and the
+  # reference tunes both rather than leaving them to the engine.
+  - --max-running-requests=4
   - --attention-backend=flashinfer
   - --kv-cache-dtype=fp8_e4m3
   - --chunked-prefill-size=8192

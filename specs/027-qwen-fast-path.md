@@ -273,14 +273,42 @@ tested and validating. Every package clears the 90% floor.
 | `llmops bench` | real token counts, and the speculator recorded |
 | `models/qwen3.8-27b-fast.yaml` | three speculators, pinned and licensed |
 
-**Nothing has been served yet.** The weights are not on the box, no
-throughput has been measured, and no quality comparison has been run.
+**Nothing has been served yet.** The artifacts are frozen on the box,
+but the first attempt to start the endpoint took the host down, so no
+throughput and no quality comparison exist.
+
+### The first start attempt took the box down
+
+2026-08-29. The manifest asked for `--mem-fraction-static=0.80`, the
+value [[019-gb10-serving-target]] enforces as a ceiling. The host
+stopped responding during model load, before `/ready`, and did not
+return on its own.
+
+The cause was not speculative decoding — this was the `none`
+configuration, one request, no draft head. It was the memory fraction,
+against a page cache still holding the 23 GB checkpoint written 31
+seconds earlier. 102.4 + 23 = 125.4 GB of a 128 GB shared pool.
+
+Three things to carry forward:
+
+- **A ceiling is not a setting.** The manifest now asks for 0.65, the
+  fraction [[022-model-qwen3.8-27b]] has served at for hours, and
+  bounds `--max-running-requests` rather than letting the scheduler size
+  its queue and GDN state pool from the fraction.
+- **Load is not a quiet moment.** The largest read this host performs
+  happens immediately before the largest allocation it performs. Drop
+  the page cache, or wait, between freezing a checkpoint and serving it.
+- **Do not put diagnostics on `/tmp` here.** The sweep wrote its engine
+  logs there, and this class of failure ends in a reboot that clears it.
+  Logs now go to `~/sweep-027`.
 
 ## Acceptance criteria
 
 - **AC1** The NVFP4 weights and each separately published draft head are
   pulled, frozen and verified by `llmops freeze`, with `license_note`
-  recording the third-party requantization. *Open.*
+  recording the third-party requantization. **Met** — 23 GB target,
+  3.5 GB DSpark head, 3.6 GB DFlash2 head, each with its own
+  `_manifest.json`.
 - **AC2** `models/qwen3.8-27b-fast.yaml` validates and serves under the
   name `qwen3.8-27b-fast`, never aliased to `qwen3.8-27b`. *Validates;
   has not served.*
