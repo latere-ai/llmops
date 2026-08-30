@@ -3,7 +3,7 @@ GO ?= go
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config
+.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config lint
 
 build:
 	$(GO) build ./...
@@ -95,6 +95,14 @@ lint-modernize:
 # instead of merely detectable.
 lint-config:
 	@$(GO) tool lateregate golangci
+
+# Runs the linter the CI lint job runs, against the config lint-config renders.
+# Without this the only machine that ever lints this repo is a runner, which is
+# the shape these gates exist to avoid.
+GOLANGCI_VERSION ?= v2.13.1
+
+lint: lint-config
+	@$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run ./...
 
 # CI-runnable e2e: full pull→push→verify and serve
 # serve→ready→metrics paths against fakes (no GPU, no network).
