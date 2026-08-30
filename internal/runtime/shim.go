@@ -180,6 +180,22 @@ func (s *Shim) EngineHealthy(ctx context.Context) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// RouteTemplate bounds the http.route span attribute. The shim proxies
+// whatever the engine serves, so the request path is caller-controlled
+// and unbounded: reporting it raw would put an unbounded label on every
+// span and metric downstream. Only the paths the shim itself answers are
+// reported; everything else is the proxy route.
+func (s *Shim) RouteTemplate(r *http.Request) string {
+	switch r.URL.Path {
+	case "/healthz", "/ready", "/metrics", "/v1/models":
+		return r.URL.Path
+	}
+	if _, ok := s.surfaces[r.URL.Path]; ok {
+		return r.URL.Path
+	}
+	return "/proxy"
+}
+
 func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set before dispatch so it reaches proxied responses too: the
 	// reverse proxy copies the engine's headers in rather than

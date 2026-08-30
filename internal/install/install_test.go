@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -235,5 +236,34 @@ func TestDaemonReloadWithoutSystemctl(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "systemctl not found") {
 		t.Fatalf("the skip was silent: %q", log.String())
+	}
+}
+
+// TestDaemonReloadReportsALookupThatIsNotAnAbsence is the other half of
+// specs/020's "a host without systemd is not an error": a lookup that fails
+// for any other reason is one. Here PATH names a relative directory, which
+// exec.LookPath resolves and then refuses with ErrDot rather than running.
+// Reporting that as "systemctl not found" would tell an operator their host
+// has no systemd when it has one this process declined to invoke.
+func TestDaemonReloadReportsALookupThatIsNotAnAbsence(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "systemctl"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	t.Setenv("PATH", "bin")
+	var log strings.Builder
+	err := daemonReload(&log)
+	if err == nil {
+		t.Fatal("a systemctl that was found and refused was reported as absent")
+	}
+	if !errors.Is(err, exec.ErrDot) {
+		t.Fatalf("daemonReload = %v, want the lookup error", err)
+	}
+	if strings.Contains(log.String(), "systemctl not found") {
+		t.Fatalf("a refused lookup was logged as an absence: %q", log.String())
 	}
 }

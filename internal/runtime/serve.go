@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"latere.ai/x/pkg/otel"
+
 	"github.com/latere-ai/llmops/internal/manifest"
 	"github.com/latere-ai/llmops/internal/mirror"
 )
@@ -119,6 +121,19 @@ func renderOverride(tmpl []string, model string, port int) []string {
 	return out
 }
 
+// probeRequest reports whether a request is machinery rather than a
+// caller. The kubelet polls /healthz and /ready on every pod on a
+// seconds-long period (deploy/*/lws.yaml), and `llmops ps` scrapes
+// /metrics on every invocation. A span each would outnumber the
+// inference spans the trace exists to show.
+func probeRequest(r *http.Request) bool {
+	switch r.URL.Path {
+	case "/healthz", "/ready", "/metrics":
+		return true
+	}
+	return false
+}
+
 // Serve runs the full entrypoint: prepare weights, start the engine,
 // serve the shim. It returns when ctx is cancelled or the engine exits.
 func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
@@ -145,7 +160,13 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: shim}
+	// The shim is wrapped once, here, rather than inside NewShim: a
+	// handler wrapped twice reports two server spans per request, and
+	// this is the only place a listener is attached to it.
+	srv := &http.Server{Handler: otel.Handler(shim, "llmops",
+		otel.WithSkip(probeRequest),
+		otel.WithRouteTemplate(shim.RouteTemplate),
+	)}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	defer func() { _ = srv.Close() }()
