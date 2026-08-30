@@ -179,7 +179,7 @@ func (h *Harness) Shell(e Endpoint) (string, error) {
 	}
 	var b strings.Builder
 	for _, kv := range vars {
-		fmt.Fprintf(&b, "export %s=%s\n", kv[0], shellQuote(kv[1]))
+		_, _ = fmt.Fprintf(&b, "export %s=%s\n", kv[0], shellQuote(kv[1]))
 	}
 	return b.String(), nil
 }
@@ -221,8 +221,8 @@ func shellQuote(s string) string {
 		return "''"
 	}
 	if strings.IndexFunc(s, func(r rune) bool {
-		return !(r == '-' || r == '_' || r == '.' || r == '/' || r == ':' ||
-			(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'))
+		return r != '-' && r != '_' && r != '.' && r != '/' && r != ':' &&
+			(r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
 	}) < 0 {
 		return s
 	}

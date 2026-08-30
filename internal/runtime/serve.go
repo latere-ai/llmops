@@ -138,7 +138,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	srv := &http.Server{Handler: shim}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	start := time.Now()
 	store := mirror.OpenStore(m.S3Prefix)
@@ -158,7 +158,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 		return err
 	}
 	shim.SetWeightsLoaded(time.Since(start))
-	fmt.Fprintf(opts.Log, "weights ready in %.1fs, launching %s (speculator: %s)\n",
+	_, _ = fmt.Fprintf(opts.Log, "weights ready in %.1fs, launching %s (speculator: %s)\n",
 		time.Since(start).Seconds(), m.Runtime, spec.Name)
 
 	args := opts.EngineCmd

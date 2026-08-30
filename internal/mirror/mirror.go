@@ -55,7 +55,7 @@ type Mirror struct {
 
 func (m *Mirror) logf(format string, a ...any) {
 	if m.Log != nil {
-		fmt.Fprintf(m.Log, format+"\n", a...)
+		_, _ = fmt.Fprintf(m.Log, format+"\n", a...)
 	}
 }
 
@@ -200,12 +200,17 @@ func writeManifest(repo, sha string, total int64, files []FileEntry, store Store
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
-	tmp.Close()
+	// Close reports the flush error. Publishing an unflushed manifest
+	// would mark a partial mirror complete, which is what the manifest
+	// exists to rule out.
+	if err := tmp.Close(); err != nil {
+		return err
+	}
 	return store.Put(tmp.Name(), ManifestName)
 }
 
@@ -215,8 +220,8 @@ func ReadManifest(store Store) (*StoreManifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := store.Get(ManifestName, tmp.Name()); err != nil {
 		return nil, fmt.Errorf("mirror incomplete or absent (%s missing): %w", ManifestName, err)
 	}

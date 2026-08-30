@@ -34,7 +34,7 @@ func (c *HFClient) getJSON(path string, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET %s: %s", path, resp.Status)
 	}
@@ -82,7 +82,7 @@ func getJSONArrayPage[T any](c *HFClient, rawURL, path string) ([]T, string, err
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("GET %s: %s", path, resp.Status)
 	}

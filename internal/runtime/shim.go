@@ -170,8 +170,8 @@ func (s *Shim) EngineHealthy() bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -186,15 +186,15 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/healthz":
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	case "/ready":
 		if s.weightsLoaded() && s.EngineHealthy() {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, "ready")
+			_, _ = fmt.Fprintln(w, "ready")
 			return
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprintln(w, "loading")
+		_, _ = fmt.Fprintln(w, "loading")
 	case "/metrics":
 		s.metrics(w)
 	default:
@@ -256,7 +256,7 @@ func (s *Shim) forward(w http.ResponseWriter, r *http.Request, path string, body
 		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for _, h := range []string{"Content-Type", "Cache-Control"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
@@ -267,7 +267,7 @@ func (s *Shim) forward(w http.ResponseWriter, r *http.Request, path string, body
 	if fl, ok := w.(http.Flusher); ok {
 		dst = flushWriter{w, fl}
 	}
-	io.Copy(dst, resp.Body)
+	_, _ = io.Copy(dst, resp.Body)
 }
 
 func (s *Shim) engineRequest(r *http.Request, path string, body []byte) (*http.Request, error) {
@@ -372,10 +372,10 @@ func (s *Shim) translated(w http.ResponseWriter, r *http.Request, sf *surface, b
 		http.Error(w, fmt.Sprintf("engine: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 		return
 	}
 	if req.Stream {
@@ -397,7 +397,7 @@ func (s *Shim) translated(w http.ResponseWriter, r *http.Request, sf *surface, b
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(translated)
+	_, _ = w.Write(translated)
 }
 
 type lossKey struct {
@@ -418,22 +418,22 @@ func (s *Shim) metrics(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	if resp, err := s.client.Get(s.engine.String() + "/metrics"); err == nil {
 		if resp.StatusCode == http.StatusOK {
-			io.Copy(w, resp.Body)
+			_, _ = io.Copy(w, resp.Body)
 		} else {
-			io.Copy(io.Discard, resp.Body)
+			_, _ = io.Copy(io.Discard, resp.Body)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
-	fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
-	fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")
-	fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
+	_, _ = fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")
+	_, _ = fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
 
 	// A label-only gauge, so a throughput panel can be broken down by
 	// the speculator that produced it (specs/010, specs/027).
 	if s.Speculator != "" {
-		fmt.Fprintf(w, "# HELP llmops_speculator_info The draft-model configuration the engine is serving with.\n")
-		fmt.Fprintf(w, "# TYPE llmops_speculator_info gauge\n")
-		fmt.Fprintf(w, "llmops_speculator_info{speculator=%q} 1\n", s.Speculator)
+		_, _ = fmt.Fprintf(w, "# HELP llmops_speculator_info The draft-model configuration the engine is serving with.\n")
+		_, _ = fmt.Fprintf(w, "# TYPE llmops_speculator_info gauge\n")
+		_, _ = fmt.Fprintf(w, "llmops_speculator_info{speculator=%q} 1\n", s.Speculator)
 	}
 
 	// One line per (surface, field) a caller asked for and the dialect
@@ -447,10 +447,10 @@ func (s *Shim) metrics(w http.ResponseWriter) {
 	})
 	if len(lines) > 0 {
 		sort.Strings(lines) // stable output; Range order is undefined
-		fmt.Fprintf(w, "# HELP llmops_dialect_loss_total Request fields a caller's dialect could not carry.\n")
-		fmt.Fprintf(w, "# TYPE llmops_dialect_loss_total counter\n")
+		_, _ = fmt.Fprintf(w, "# HELP llmops_dialect_loss_total Request fields a caller's dialect could not carry.\n")
+		_, _ = fmt.Fprintf(w, "# TYPE llmops_dialect_loss_total counter\n")
 		for _, l := range lines {
-			fmt.Fprintln(w, l)
+			_, _ = fmt.Fprintln(w, l)
 		}
 	}
 }

@@ -54,7 +54,7 @@ func runInstall(rest []string, out, errw io.Writer) error {
 		if m.DeployMode() != manifest.DeployBareMetal {
 			return fmt.Errorf("%s is deploy: %s; only bare-metal models have a unit", m.Name, m.DeployMode())
 		}
-		fmt.Fprint(out, install.Unit(m, opts))
+		_, _ = fmt.Fprint(out, install.Unit(m, opts))
 		return nil
 	}
 	res, err := install.Run(m, *path, opts, out)
@@ -62,10 +62,10 @@ func runInstall(rest []string, out, errw io.Writer) error {
 		return err
 	}
 	if !res.ManifestChanged && !res.UnitChanged {
-		fmt.Fprintf(out, "%s already installed; nothing to do\n", m.Name)
+		_, _ = fmt.Fprintf(out, "%s already installed; nothing to do\n", m.Name)
 		return nil
 	}
-	fmt.Fprintf(out, "installed %s — start it with: systemctl enable --now %s\n",
+	_, _ = fmt.Fprintf(out, "installed %s — start it with: systemctl enable --now %s\n",
 		m.Name, install.UnitName(m))
 	return nil
 }

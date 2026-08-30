@@ -76,7 +76,7 @@ func prepareArtifact(load, hfRepo, revision, cacheRoot string, store mirror.Stor
 			return "", err
 		}
 	}
-	fmt.Fprintf(log, "weights: %d files ready in %s\n", len(sm.Files), dir)
+	_, _ = fmt.Fprintf(log, "weights: %d files ready in %s\n", len(sm.Files), dir)
 	return dir, nil
 }
 
@@ -118,7 +118,7 @@ func verifyInPlace(dir string, log io.Writer) (string, error) {
 				f.Path, mirror.ManifestName, dir)
 		}
 	}
-	fmt.Fprintf(log, "weights: %d files verified in place in %s\n", len(sm.Files), dir)
+	_, _ = fmt.Fprintf(log, "weights: %d files verified in place in %s\n", len(sm.Files), dir)
 	return dir, nil
 }
 
@@ -129,7 +129,7 @@ func ensureFile(dir string, f mirror.FileEntry, store mirror.Store, log io.Write
 	if ok, _ := fileMatches(local, f); ok {
 		return nil
 	}
-	fmt.Fprintf(log, "weights: fetching %s (%d bytes)\n", f.Path, f.Size)
+	_, _ = fmt.Fprintf(log, "weights: fetching %s (%d bytes)\n", f.Path, f.Size)
 	if err := store.Get(f.Path, local); err != nil {
 		return fmt.Errorf("fetch %s: %w", f.Path, err)
 	}
@@ -163,11 +163,13 @@ func lockDir(dir string) (func(), error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("flock %s: %w", dir, err)
 	}
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
+		// Closing the descriptor releases the lock regardless, so
+		// neither call has an actionable failure.
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
 	}, nil
 }

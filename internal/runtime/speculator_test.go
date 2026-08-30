@@ -168,7 +168,7 @@ func TestPrepareDraftStagesEvenWhenTheModelStreams(t *testing.T) {
 func TestSpeculatorIsReportedOnEveryResponse(t *testing.T) {
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"object":"list","data":[]}`)
+		_, _ = io.WriteString(w, `{"object":"list","data":[]}`)
 	}))
 	defer engine.Close()
 

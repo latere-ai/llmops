@@ -35,7 +35,7 @@ func weightsOfSize(t *testing.T, gibSize int) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Truncate(int64(gibSize) << 30); err != nil {
 		t.Fatal(err)
 	}

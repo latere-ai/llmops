@@ -173,7 +173,7 @@ func oneRequest(ctx context.Context, client *http.Client, cfg Config) sample {
 	if err != nil {
 		return sample{err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return sample{err: fmt.Errorf("status %s", resp.Status)}
 	}

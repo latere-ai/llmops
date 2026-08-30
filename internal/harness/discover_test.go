@@ -50,11 +50,11 @@ func fakeShim(t *testing.T, state string, loaded float64) *httptest.Server {
 			if state != "ready" {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
-			fmt.Fprintln(w, state)
+			_, _ = fmt.Fprintln(w, state)
 		case "/v1/models":
-			fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
+			_, _ = fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
 		case "/metrics":
-			fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", loaded)
+			_, _ = fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", loaded)
 		default:
 			http.NotFound(w, r)
 		}
@@ -150,7 +150,9 @@ func TestPortComesFromTheUnit(t *testing.T) {
 
 	// The equals form is equally valid in a unit file.
 	body := "[Service]\nExecStart=/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml --port=9124\n"
-	os.WriteFile(filepath.Join(units, "qwen.service"), []byte(body), 0o644)
+	if err := os.WriteFile(filepath.Join(units, "qwen.service"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	got, _ = Discover(cfg, units, 100*time.Millisecond)
 	if got[0].Port != 9124 {
 		t.Fatalf("port %d, want 9124 from the --port= form", got[0].Port)
@@ -185,11 +187,11 @@ func TestDiscoverRejectsAPortServingAnotherModel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ready":
-			fmt.Fprintln(w, "ready")
+			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
-			fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)
+			_, _ = fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)
 		default:
-			fmt.Fprintln(w, "llmops_weights_load_seconds 1")
+			_, _ = fmt.Fprintln(w, "llmops_weights_load_seconds 1")
 		}
 	}))
 	defer srv.Close()
@@ -213,11 +215,11 @@ func TestDiscoverTrustsAnEngineWithoutAModelList(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ready":
-			fmt.Fprintln(w, "ready")
+			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
 			http.NotFound(w, r)
 		default:
-			fmt.Fprintln(w, "llmops_weights_load_seconds 5")
+			_, _ = fmt.Fprintln(w, "llmops_weights_load_seconds 5")
 		}
 	}))
 	defer srv.Close()

@@ -27,10 +27,10 @@ func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/models/"+repo, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
 	})
 	mux.HandleFunc("/api/models/"+repo+"/revision/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
 	})
 	mux.HandleFunc("/api/models/"+repo+"/tree/"+testSHA, func(w http.ResponseWriter, r *http.Request) {
 		// Deterministic order: map iteration is random, and cursor
@@ -69,7 +69,7 @@ func fakeHub(t *testing.T, repo string, files map[string]string, lfs map[string]
 			}
 			tree = tree[offset:end]
 		}
-		json.NewEncoder(w).Encode(tree)
+		_ = json.NewEncoder(w).Encode(tree)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -416,7 +416,9 @@ func TestReadManifestMissing(t *testing.T) {
 		t.Fatalf("missing manifest must report incomplete mirror: %v", err)
 	}
 	// Corrupt manifest JSON.
-	os.WriteFile(filepath.Join(store.Root, ManifestName), []byte("{"), 0o644)
+	if err := os.WriteFile(filepath.Join(store.Root, ManifestName), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ReadManifest(store); err == nil {
 		t.Fatal("corrupt manifest must error")
 	}
@@ -425,7 +427,7 @@ func TestReadManifestMissing(t *testing.T) {
 func TestResolveErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "empty") {
-			json.NewEncoder(w).Encode(map[string]string{})
+			_ = json.NewEncoder(w).Encode(map[string]string{})
 			return
 		}
 		http.NotFound(w, r)
@@ -445,7 +447,7 @@ func TestResolveErrors(t *testing.T) {
 
 func TestTreeEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]any{})
+		_ = json.NewEncoder(w).Encode([]any{})
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
@@ -491,7 +493,7 @@ func TestTreeFollowsPagination(t *testing.T) {
 func TestTreeRejectsCrossHostPagination(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Link", `<http://evil.example/api/models/acme/tiny/tree/x?cursor=2>; rel="next"`)
-		json.NewEncoder(w).Encode([]map[string]any{
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{"type": "file", "path": "a.safetensors", "size": 4},
 		})
 	}))
@@ -508,7 +510,7 @@ func TestTreeRejectsCrossHostPagination(t *testing.T) {
 func TestTreeCapsPageCount(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Link", "<http://"+r.Host+"/api/models/acme/tiny/tree/x?cursor=1>; rel=\"next\"")
-		json.NewEncoder(w).Encode([]map[string]any{
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{"type": "file", "path": "a.safetensors", "size": 4},
 		})
 	}))
@@ -599,7 +601,9 @@ esac
 
 	s := OpenStore("s3://bucket/").(*S5cmdStore)
 	local := filepath.Join(t.TempDir(), "f.txt")
-	os.WriteFile(local, []byte("hello"), 0o644)
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.Put(local, "dir/f.txt"); err != nil {
 		t.Fatal(err)
@@ -663,7 +667,7 @@ func TestExecCommander(t *testing.T) {
 
 func TestGetJSONDecodeError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not-json"))
+		_, _ = w.Write([]byte("not-json"))
 	}))
 	defer srv.Close()
 	c := &HFClient{Base: srv.URL, HTTP: srv.Client()}
@@ -686,7 +690,7 @@ func TestPullResolveAndTreeErrors(t *testing.T) {
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
 	}))
 	defer srv.Close()
 	m := &Mirror{HF: &HFClient{Base: srv.URL, HTTP: srv.Client()}, Cmd: &fakeDownloader{}}
@@ -780,10 +784,14 @@ func TestVerifyStoreErrors(t *testing.T) {
 func TestLocalStorePutBadRoot(t *testing.T) {
 	// Root is a file, so MkdirAll under it fails.
 	rootFile := filepath.Join(t.TempDir(), "rootfile")
-	os.WriteFile(rootFile, []byte("x"), 0o644)
+	if err := os.WriteFile(rootFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	s := &LocalStore{Root: rootFile}
 	local := filepath.Join(t.TempDir(), "f")
-	os.WriteFile(local, []byte("y"), 0o644)
+	if err := os.WriteFile(local, []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Put(local, "sub/f"); err == nil {
 		t.Fatal("Put under file root must error")
 	}
@@ -792,12 +800,16 @@ func TestLocalStorePutBadRoot(t *testing.T) {
 func TestLocalStoreListUnreadable(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "sub")
-	os.MkdirAll(sub, 0o755)
-	os.WriteFile(filepath.Join(sub, "f"), []byte("x"), 0o644)
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(sub, 0o000); err != nil {
 		t.Skip("cannot chmod")
 	}
-	t.Cleanup(func() { os.Chmod(sub, 0o755) })
+	t.Cleanup(func() { _ = os.Chmod(sub, 0o755) })
 	if _, err := (&LocalStore{Root: root}).List(); err == nil {
 		t.Fatal("unreadable subdir must error")
 	}
@@ -807,7 +819,9 @@ func TestS5cmdStoreErrors(t *testing.T) {
 	bin := t.TempDir()
 	// A fake s5cmd that emits garbage for ls and fails cp.
 	script := "#!/bin/sh\ncase \"$1\" in\nls) echo garbage ;;\n*) exit 1 ;;\nesac\n"
-	os.WriteFile(filepath.Join(bin, "s5cmd"), []byte(script), 0o755)
+	if err := os.WriteFile(filepath.Join(bin, "s5cmd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", bin)
 	s := &S5cmdStore{Prefix: "s3://bucket/"}
 	if _, err := s.Size("x"); err == nil {
@@ -830,8 +844,12 @@ func TestGetJSONConnectionError(t *testing.T) {
 
 func TestLocalStoreListSkipsTempFiles(t *testing.T) {
 	root := t.TempDir()
-	os.WriteFile(filepath.Join(root, ".put-123"), []byte("partial"), 0o644)
-	os.WriteFile(filepath.Join(root, "real"), []byte("x"), 0o644)
+	if err := os.WriteFile(filepath.Join(root, ".put-123"), []byte("partial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "real"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	files, err := (&LocalStore{Root: root}).List()
 	if err != nil || len(files) != 1 || files[0] != "real" {
 		t.Fatalf("List = %v, %v (want [real])", files, err)
@@ -840,11 +858,15 @@ func TestLocalStoreListSkipsTempFiles(t *testing.T) {
 
 func TestLocalStoreGetSizeParentIsFile(t *testing.T) {
 	root := t.TempDir()
-	os.WriteFile(filepath.Join(root, "blocker"), []byte("x"), 0o644)
+	if err := os.WriteFile(filepath.Join(root, "blocker"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	s := &LocalStore{Root: root}
 	// Destination parent is an existing file → MkdirAll fails.
 	local := filepath.Join(t.TempDir(), "f")
-	os.WriteFile(local, []byte("y"), 0o644)
+	if err := os.WriteFile(local, []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Get("blocker", filepath.Join(local, "under-file")); err == nil {
 		t.Fatal("Get with file-parent dest must error")
 	}
@@ -857,13 +879,17 @@ func TestLocalStoreGetSizeParentIsFile(t *testing.T) {
 func TestLocalStorePutUnwritableDir(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "sub")
-	os.MkdirAll(sub, 0o755)
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(sub, 0o555); err != nil {
 		t.Skip("cannot chmod")
 	}
-	t.Cleanup(func() { os.Chmod(sub, 0o755) })
+	t.Cleanup(func() { _ = os.Chmod(sub, 0o755) })
 	local := filepath.Join(t.TempDir(), "f")
-	os.WriteFile(local, []byte("y"), 0o644)
+	if err := os.WriteFile(local, []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := (&LocalStore{Root: root}).Put(local, "sub/f"); err == nil {
 		t.Fatal("Put into unwritable dir must error")
 	}

@@ -113,7 +113,7 @@ func probe(name string, port int, timeout time.Duration) (state string, loaded f
 		return "down", 0, ""
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// The shim reports the active draft head on every response, so the
 	// answer arrives with the readiness check rather than costing a
 	// second request (specs/027).
@@ -140,7 +140,7 @@ func serves(c *http.Client, base, name string) bool {
 	if err != nil {
 		return true
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return true
 	}
@@ -167,7 +167,7 @@ func weightsLoaded(c *http.Client, base string) float64 {
 	if err != nil {
 		return 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	for line := range strings.SplitSeq(string(body), "\n") {
 		if v, ok := strings.CutPrefix(line, "llmops_weights_load_seconds "); ok {

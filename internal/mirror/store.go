@@ -48,14 +48,14 @@ func (s *LocalStore) Put(local, remote string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.CreateTemp(filepath.Dir(dst), ".put-*")
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(out.Name())
+		_ = out.Close()
+		_ = os.Remove(out.Name())
 		return err
 	}
 	if err := out.Close(); err != nil {
@@ -72,14 +72,18 @@ func (s *LocalStore) Get(remote, local string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(local)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	// Close reports the flush error, so it is returned rather than
+	// deferred: a discarded flush lets Get succeed on a short file.
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func (s *LocalStore) List() ([]string, error) {
@@ -122,7 +126,7 @@ func FileSHA256(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
@@ -214,8 +218,8 @@ func (s *S5cmdStore) SHA256(remote string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := s.Get(remote, tmp.Name()); err != nil {
 		return "", err
 	}

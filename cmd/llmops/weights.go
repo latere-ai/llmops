@@ -27,7 +27,7 @@ func runWeights(cmd string, rest []string, out, errw io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s@%s: %d files verified in %s\n", repo, sha, len(files), *dir)
+		_, _ = fmt.Fprintf(out, "%s@%s: %d files verified in %s\n", repo, sha, len(files), *dir)
 		return nil
 
 	case "freeze":
@@ -46,7 +46,7 @@ func runWeights(cmd string, rest []string, out, errw io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "froze %s@%s in %s\n", repo, sha, *dir)
+		_, _ = fmt.Fprintf(out, "froze %s@%s in %s\n", repo, sha, *dir)
 		return nil
 
 	case "push":
@@ -74,7 +74,7 @@ func runWeights(cmd string, rest []string, out, errw io.Writer) error {
 		if err := m.Push(repo, sha, *dir, files, mirror.OpenStore(prefix)); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "pushed %s@%s to %s\n", repo, sha, prefix)
+		_, _ = fmt.Fprintf(out, "pushed %s@%s to %s\n", repo, sha, prefix)
 		return nil
 
 	case "verify":
@@ -84,7 +84,7 @@ func runWeights(cmd string, rest []string, out, errw io.Writer) error {
 		if err := newMirror(errw).Verify(mirror.OpenStore(rest[0])); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "verify %s: ok\n", rest[0])
+		_, _ = fmt.Fprintf(out, "verify %s: ok\n", rest[0])
 		return nil
 
 	case "list":
@@ -100,7 +100,7 @@ func runWeights(cmd string, rest []string, out, errw io.Writer) error {
 		}
 		for _, f := range files {
 			if before, ok := strings.CutSuffix(f, mirror.ManifestName); ok {
-				fmt.Fprintln(out, before)
+				_, _ = fmt.Fprintln(out, before)
 			}
 		}
 		return nil

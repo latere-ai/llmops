@@ -23,7 +23,7 @@ func fakeOpenAI(t *testing.T, chunks int, status int) (*httptest.Server, *atomic
 			return
 		}
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req["stream"] != true {
 			http.Error(w, "expected stream", http.StatusBadRequest)
 			return
@@ -35,10 +35,10 @@ func fakeOpenAI(t *testing.T, chunks int, status int) (*httptest.Server, *atomic
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl := w.(http.Flusher)
 		for range chunks {
-			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tok\"}}]}\n\n")
+			_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tok\"}}]}\n\n")
 			fl.Flush()
 		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &calls
@@ -93,7 +93,7 @@ func TestRunServerErrors(t *testing.T) {
 
 func TestRunEmptyStreamIsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer srv.Close()
 	rep, err := Run(context.Background(), Config{BaseURL: srv.URL, Model: "tiny", Requests: 1})

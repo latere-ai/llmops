@@ -61,11 +61,11 @@ func runPS(rest []string, out, errw io.Writer) error {
 		return enc.Encode(models)
 	}
 	if len(models) == 0 {
-		fmt.Fprintf(out, "no models installed in %s\n", *configDir)
+		_, _ = fmt.Fprintf(out, "no models installed in %s\n", *configDir)
 		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATE\tPORT\tRUNTIME\tGPU\tSPECULATOR\tLOADED")
+	_, _ = fmt.Fprintln(tw, "NAME\tSTATE\tPORT\tRUNTIME\tGPU\tSPECULATOR\tLOADED")
 	for _, m := range models {
 		loaded := "-"
 		if m.Loaded > 0 {
@@ -77,7 +77,7 @@ func runPS(rest []string, out, errw io.Writer) error {
 		if m.Speculator != "" {
 			spec = m.Speculator
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n", m.Name, m.State, m.Port, m.Runtime, m.GPU, spec, loaded)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n", m.Name, m.State, m.Port, m.Runtime, m.GPU, spec, loaded)
 	}
 	return tw.Flush()
 }
@@ -143,14 +143,14 @@ func runEndpoint(rest []string, out, errw io.Writer) error {
 	}
 
 	// Warnings go to stderr so `eval "$(llmops endpoint …)"` stays clean.
-	fmt.Fprintf(errw, "# %s is unauthenticated; the token below is a placeholder (specs/026)\n", ep.BaseURL)
+	_, _ = fmt.Fprintf(errw, "# %s is unauthenticated; the token below is a placeholder (specs/026)\n", ep.BaseURL)
 	if !m.Ready() {
-		fmt.Fprintf(errw, "# warning: %s is %s, not ready\n", m.Name, m.State)
+		_, _ = fmt.Fprintf(errw, "# warning: %s is %s, not ready\n", m.Name, m.State)
 	}
 	if h.ConfigFile != "" && harness.Format(*format) != harness.FormatEnv {
-		fmt.Fprintf(errw, "# write this to %s\n", h.ConfigFile)
+		_, _ = fmt.Fprintf(errw, "# write this to %s\n", h.ConfigFile)
 	}
-	fmt.Fprint(out, rendered)
+	_, _ = fmt.Fprint(out, rendered)
 	return nil
 }
 
@@ -202,7 +202,7 @@ func runHarness(rest []string, out, errw io.Writer) error {
 		env = append(env, kv[0]+"="+kv[1])
 	}
 	if h.ConfigFile != "" {
-		fmt.Fprintf(errw, "# %s also reads %s; `llmops endpoint --harness %s` prints it\n",
+		_, _ = fmt.Fprintf(errw, "# %s also reads %s; `llmops endpoint --harness %s` prints it\n",
 			h.Name, h.ConfigFile, h.Name)
 	}
 	// Replace this process: signals, exit codes and the terminal then
@@ -222,7 +222,7 @@ func awaitReady(configDir, unitDir string, m harness.Model, wait, timeout time.D
 		return m, fmt.Errorf("%s is %s; start it with `systemctl start %s.service`, "+
 			"or pass --wait to block on one that is loading", m.Name, m.State, m.Name)
 	}
-	fmt.Fprintf(errw, "# %s is %s; waiting up to %s\n", m.Name, m.State, wait)
+	_, _ = fmt.Fprintf(errw, "# %s is %s; waiting up to %s\n", m.Name, m.State, wait)
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)

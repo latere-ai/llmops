@@ -42,9 +42,9 @@ func runBench(rest []string, out, errw io.Writer) error {
 		if err := os.WriteFile(*outPath, data, 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "report written to %s\n", *outPath)
+		_, _ = fmt.Fprintf(out, "report written to %s\n", *outPath)
 		return nil
 	}
-	fmt.Fprintln(out, string(data))
+	_, _ = fmt.Fprintln(out, string(data))
 	return nil
 }

@@ -512,11 +512,11 @@ func (m *Manifest) validateSpeculators(fail func(string, ...any)) {
 		}
 		return
 	}
-	switch d := m.DefaultSpeculator; {
-	case d == "":
+	switch d := m.DefaultSpeculator; d {
+	case "":
 		fail("default_speculator is required when speculators are declared: which draft head runs changes both throughput and output, so it is never implicit (choose one of %s, or %q)",
 			strings.Join(m.SpeculatorNames(), ", "), SpeculatorNone)
-	case d == SpeculatorNone:
+	case SpeculatorNone:
 	default:
 		if _, ok := m.Speculators[d]; !ok {
 			fail("default_speculator %q is not a declared speculator (have %s)", d, strings.Join(m.SpeculatorNames(), ", "))

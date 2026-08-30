@@ -30,13 +30,13 @@ func startHub(t *testing.T) (scratch string) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/models/acme/tiny", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
 	})
 	mux.HandleFunc("/api/models/acme/tiny/revision/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": testSHA})
 	})
 	mux.HandleFunc("/api/models/acme/tiny/tree/"+testSHA, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]map[string]any{{
+		_ = json.NewEncoder(w).Encode([]map[string]any{{
 			"type": "file", "path": "model.safetensors", "size": len(content),
 			"lfs": map[string]any{"oid": "sha256:" + sum},
 		}})

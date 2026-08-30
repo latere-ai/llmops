@@ -32,7 +32,9 @@ func seedStore(t *testing.T, files map[string]string) *mirror.LocalStore {
 	var total int64
 	for path, content := range files {
 		p := filepath.Join(root, path)
-		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -230,7 +232,9 @@ func TestPrepareWeightsErrors(t *testing.T) {
 
 	// Store serves corrupt bytes → hash mismatch after download.
 	store := seedStore(t, weights)
-	os.WriteFile(filepath.Join(store.Root, "model.safetensors"), []byte("evil-weights"), 0o644)
+	if err := os.WriteFile(filepath.Join(store.Root, "model.safetensors"), []byte("evil-weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	m2 := testManifest(store.Root)
 	_, err := PrepareWeights(m2, t.TempDir(), store, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "hash mismatch") {
@@ -239,14 +243,18 @@ func TestPrepareWeightsErrors(t *testing.T) {
 
 	// Store missing a manifest-listed file → fetch error.
 	store2 := seedStore(t, weights)
-	os.Remove(filepath.Join(store2.Root, "model.safetensors"))
+	if err := os.Remove(filepath.Join(store2.Root, "model.safetensors")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := PrepareWeights(testManifest(store2.Root), t.TempDir(), store2, io.Discard); err == nil {
 		t.Fatal("missing store file must error")
 	}
 
 	// cacheRoot under a file → mkdir error.
 	blocker := filepath.Join(t.TempDir(), "file")
-	os.WriteFile(blocker, []byte("x"), 0o644)
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := PrepareWeights(testManifest(store2.Root), filepath.Join(blocker, "sub"), store2, io.Discard); err == nil {
 		t.Fatal("bad cache root must error")
 	}
@@ -270,9 +278,9 @@ func fakeEngine(t *testing.T, healthy *bool) *httptest.Server {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
 		case "/metrics":
-			fmt.Fprintln(w, "engine_requests_total 42")
+			_, _ = fmt.Fprintln(w, "engine_requests_total 42")
 		default:
-			fmt.Fprintf(w, "engine:%s", r.URL.Path)
+			_, _ = fmt.Fprintf(w, "engine:%s", r.URL.Path)
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -294,7 +302,7 @@ func TestShimContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(body)
 	}
@@ -344,7 +352,7 @@ func TestShimMetricsOmitsEngineErrorBody(t *testing.T) {
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprint(w, "<html>503 Service Unavailable</html>")
+		_, _ = fmt.Fprint(w, "<html>503 Service Unavailable</html>")
 	}))
 	defer engine.Close()
 
@@ -405,7 +413,7 @@ func freePort(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
@@ -449,7 +457,7 @@ func TestServeE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if !strings.Contains(string(body), "llmops_weights_load_seconds") {
 		t.Fatalf("metrics missing gauge: %s", body)
 	}
@@ -510,7 +518,7 @@ func TestServePortConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	m := testManifest(t.TempDir())
 	if err := Serve(context.Background(), m, Options{
 		Port: ln.Addr().(*net.TCPAddr).Port,
@@ -536,7 +544,7 @@ func waitFor(t *testing.T, url string, code int, timeout time.Duration) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(url)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == code {
 				return
 			}
@@ -555,7 +563,7 @@ func chatEngine(t *testing.T) *httptest.Server {
 			return
 		}
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if fail, _ := req["model"].(string); fail == "boom" {
 			http.Error(w, `{"error":"kaput"}`, http.StatusInternalServerError)
 			return
@@ -568,13 +576,13 @@ func chatEngine(t *testing.T) *httptest.Server {
 				`{"id":"c1","object":"chat.completion.chunk","model":"tiny","choices":[{"index":0,"delta":{"content":"llo"}}]}`,
 				`{"id":"c1","object":"chat.completion.chunk","model":"tiny","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
 			} {
-				fmt.Fprintf(w, "data: %s\n\n", chunk)
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
 				fl.Flush()
 			}
-			fmt.Fprint(w, "data: [DONE]\n\n")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 			return
 		}
-		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
+		_, _ = fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -594,7 +602,7 @@ func TestShimAnthropicMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, out)
@@ -618,7 +626,7 @@ func TestShimAnthropicMessagesStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, out)
@@ -647,7 +655,7 @@ func TestShimAnthropicMessagesErrors(t *testing.T) {
 	if resp.StatusCode != 400 {
 		t.Fatalf("bad body status %d", resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Engine-side failure passes its status through.
 	body := `{"model":"boom","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`
@@ -655,14 +663,14 @@ func TestShimAnthropicMessagesErrors(t *testing.T) {
 	if resp.StatusCode != 500 {
 		t.Fatalf("engine error status %d", resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Wrong method.
 	resp, _ = http.Get(front.URL + "/v1/messages")
 	if resp.StatusCode != 405 {
 		t.Fatalf("GET status %d", resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Engine unreachable.
 	dead, _ := NewShim("http://127.0.0.1:1")
@@ -679,13 +687,13 @@ func TestShimAnthropicMessagesBadUpstream(t *testing.T) {
 	// Engine returns 200 with garbage — non-stream and stream.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if stream, _ := req["stream"].(bool); stream {
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: {not-json\n\n")
+			_, _ = fmt.Fprint(w, "data: {not-json\n\n")
 			return
 		}
-		fmt.Fprint(w, "definitely-not-json")
+		_, _ = fmt.Fprint(w, "definitely-not-json")
 	}))
 	defer srv.Close()
 	shim, err := NewShim(srv.URL)
@@ -700,7 +708,7 @@ func TestShimAnthropicMessagesBadUpstream(t *testing.T) {
 	if resp.StatusCode != 502 {
 		t.Fatalf("garbage upstream status %d", resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Streaming garbage: status is already 200, but the handler must
 	// terminate without panicking.
@@ -709,8 +717,8 @@ func TestShimAnthropicMessagesBadUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
 }
 
 type errReader struct{}
@@ -736,7 +744,7 @@ func recordingEngine(t *testing.T, got *[]byte) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		*got = body
-		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		_, _ = fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -785,7 +793,7 @@ func TestSystemPromptInjection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode != 200 {
 				t.Fatalf("status %d", resp.StatusCode)
 			}
@@ -804,9 +812,9 @@ func TestForwardPreservesCallerHeadersAndQuery(t *testing.T) {
 		gotAccept = r.Header.Get("Accept")
 		gotTrace = r.Header.Get("X-Trace-Id")
 		gotQuery = r.URL.RawQuery
-		io.Copy(io.Discard, r.Body)
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"c1","choices":[]}`)
+		_, _ = fmt.Fprint(w, `{"id":"c1","choices":[]}`)
 	}))
 	defer engine.Close()
 
@@ -832,7 +840,7 @@ func TestForwardPreservesCallerHeadersAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if gotAuth != "Bearer caller-token" {
 		t.Errorf("engine Authorization = %q, want caller token", gotAuth)
@@ -864,7 +872,7 @@ func TestSystemPromptInjectionAnthropicPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -880,7 +888,7 @@ func TestAnthropicForwardPreservesCallerHeadersAndQuery(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		gotTrace = r.Header.Get("X-Trace-Id")
 		gotQuery = r.URL.RawQuery
-		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		_, _ = fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 	}))
 	defer engine.Close()
 
@@ -903,7 +911,7 @@ func TestAnthropicForwardPreservesCallerHeadersAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if gotAuth != "Bearer caller-token" || gotTrace != "trace-xyz" || gotQuery != "trace=abc123" {
 		t.Fatalf("engine metadata = auth %q, trace %q, query %q", gotAuth, gotTrace, gotQuery)
@@ -973,7 +981,7 @@ func TestSystemPromptStreamingThroughForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(out), "chat.completion.chunk") || !strings.Contains(string(out), "[DONE]") {
 		t.Fatalf("stream not passed through: %s", out)
@@ -1017,7 +1025,7 @@ func captureEngine(t *testing.T, into *[]byte) *httptest.Server {
 			t.Errorf("read forwarded body: %v", err)
 		}
 		*into = b
-		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
+		_, _ = fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -1051,7 +1059,7 @@ func TestShimAnthropicToolResultPreservesTurnOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, out)
@@ -1113,7 +1121,7 @@ func TestShimServesEveryCallerDialect(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			out, _ := io.ReadAll(resp.Body)
 			if resp.StatusCode != 200 {
 				t.Fatalf("status %d: %s", resp.StatusCode, out)
@@ -1133,7 +1141,7 @@ func TestShimNativeSurfaceIsNotRoundTripped(t *testing.T) {
 	var got []byte
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, _ = io.ReadAll(r.Body)
-		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`)
+		_, _ = fmt.Fprint(w, `{"id":"c1","object":"chat.completion","model":"tiny","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`)
 	}))
 	defer engine.Close()
 	shim, err := NewShim(engine.URL)
@@ -1150,7 +1158,7 @@ func TestShimNativeSurfaceIsNotRoundTripped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(got) != sent {
 		t.Fatalf("native surface was rewritten:\n got  %s\n want %s", got, sent)
 	}
@@ -1176,8 +1184,8 @@ func TestShimReportsDialectLoss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
 	loss := resp.Header.Get(LossHeader)
 	if loss == "" {
@@ -1209,7 +1217,7 @@ func TestShimTranslatedSurfaceRejectsNonPost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("GET on a translated surface: %d, want 405", resp.StatusCode)
 	}
@@ -1221,7 +1229,7 @@ func TestShimEngineDialectSelectsBackend(t *testing.T) {
 	var hitPath string
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hitPath = r.URL.Path
-		fmt.Fprint(w, `{"id":"m1","type":"message","role":"assistant","model":"tiny",`+
+		_, _ = fmt.Fprint(w, `{"id":"m1","type":"message","role":"assistant","model":"tiny",`+
 			`"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn",`+
 			`"usage":{"input_tokens":1,"output_tokens":1}}`)
 	}))
@@ -1244,7 +1252,7 @@ func TestShimEngineDialectSelectsBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, out)
 	}

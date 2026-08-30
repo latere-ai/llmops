@@ -82,7 +82,7 @@ func validate(path, deployDir string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s: ok\n", m.Name)
+		_, _ = fmt.Fprintf(out, "%s: ok\n", m.Name)
 		return nil
 	}
 
@@ -91,10 +91,10 @@ func validate(path, deployDir string, out io.Writer) error {
 		return err
 	}
 	for _, m := range ms {
-		fmt.Fprintf(out, "%s: ok (%s, %s, %s, %dx%s x%d)\n",
+		_, _ = fmt.Fprintf(out, "%s: ok (%s, %s, %s, %dx%s x%d)\n",
 			m.Name, m.Runtime, m.DeployMode(), m.Format, m.GPU.Count, m.GPU.Type, m.GPU.Nodes)
 	}
-	fmt.Fprintf(out, "%d manifests valid\n", len(ms))
+	_, _ = fmt.Fprintf(out, "%d manifests valid\n", len(ms))
 
 	if deployDir == "" {
 		deployDir = filepath.Join(filepath.Dir(filepath.Clean(path)), "deploy")
@@ -107,6 +107,6 @@ func validate(path, deployDir string, out io.Writer) error {
 	if err := deploycheck.Validate(path, deployDir); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%d deploy artifacts consistent\n", len(ms))
+	_, _ = fmt.Fprintf(out, "%d deploy artifacts consistent\n", len(ms))
 	return nil
 }

@@ -39,7 +39,7 @@ func TestCrossCompileTargetsRequestedArch(t *testing.T) {
 			if err != nil {
 				t.Fatalf("open %s: %v", tc.goarch, err)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			if f.Machine != tc.want {
 				t.Errorf("GOARCH=%s produced %v, want %v", tc.goarch, f.Machine, tc.want)
 			}

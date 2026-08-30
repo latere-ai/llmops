@@ -17,23 +17,23 @@ func speculativeEngine(t *testing.T, events, tokensPerEvent int, speculator stri
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if speculator != "" {
 			w.Header().Set(SpeculatorHeader, speculator)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl := w.(http.Flusher)
 		for range events {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"a b c d"}}]}`+"\n\n")
+			_, _ = fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"a b c d"}}]}`+"\n\n")
 			fl.Flush()
 		}
 		// Only sent because the client asked for it.
 		if opts, ok := req["stream_options"].(map[string]any); ok && opts["include_usage"] == true {
-			fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"completion_tokens\":%d}}\n\n",
+			_, _ = fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"completion_tokens\":%d}}\n\n",
 				events*tokensPerEvent)
 			fl.Flush()
 		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -115,8 +115,8 @@ func TestSpeculatorChangeMidRunFails(t *testing.T) {
 		}
 		w.Header().Set(SpeculatorHeader, spec)
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"x"}}]}`+"\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		_, _ = fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"x"}}]}`+"\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer srv.Close()
 

@@ -20,11 +20,11 @@ func TestDiscoverReportsTheRunningSpeculator(t *testing.T) {
 		w.Header().Set(runtime.SpeculatorHeader, "dflash2")
 		switch r.URL.Path {
 		case "/ready":
-			fmt.Fprintln(w, "ready")
+			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
-			fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
+			_, _ = fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
 		default:
-			fmt.Fprintln(w, "llmops_weights_load_seconds 12")
+			_, _ = fmt.Fprintln(w, "llmops_weights_load_seconds 12")
 		}
 	}))
 	defer srv.Close()
@@ -69,11 +69,11 @@ func TestDiscoverDropsTheSpeculatorOfAnotherModel(t *testing.T) {
 		w.Header().Set(runtime.SpeculatorHeader, "dspark")
 		switch r.URL.Path {
 		case "/ready":
-			fmt.Fprintln(w, "ready")
+			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
-			fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)
+			_, _ = fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)
 		default:
-			fmt.Fprintln(w, "llmops_weights_load_seconds 1")
+			_, _ = fmt.Fprintln(w, "llmops_weights_load_seconds 1")
 		}
 	}))
 	defer srv.Close()

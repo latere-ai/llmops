@@ -79,7 +79,7 @@ func usagef(format string, a ...any) error {
 
 func run(args []string, out, errw io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(errw, usage)
+		_, _ = fmt.Fprintln(errw, usage)
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
@@ -100,15 +100,15 @@ func run(args []string, out, errw io.Writer) int {
 		case "bench":
 			return runBench(rest, out, errw)
 		case "version":
-			fmt.Fprintln(out, versionString())
+			_, _ = fmt.Fprintln(out, versionString())
 			return nil
 		default:
-			fmt.Fprintln(errw, usage)
+			_, _ = fmt.Fprintln(errw, usage)
 			return usagef("unknown command %q", cmd)
 		}
 	}()
 	if err != nil {
-		fmt.Fprintln(errw, "llmops:", err)
+		_, _ = fmt.Fprintln(errw, "llmops:", err)
 		if errors.As(err, &usageErr{}) {
 			return 2
 		}

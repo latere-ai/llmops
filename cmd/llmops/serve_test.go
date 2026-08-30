@@ -161,7 +161,9 @@ func TestValidateReportsMissingDeployDir(t *testing.T) {
 func TestValidateRejectsInvalid(t *testing.T) {
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad.yaml")
-	os.WriteFile(bad, []byte("name: bad\nrevision: main\n"), 0o644)
+	if err := os.WriteFile(bad, []byte("name: bad\nrevision: main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var out, errw strings.Builder
 	if code := run([]string{"validate", bad}, &out, &errw); code == 0 {
 		t.Fatal("invalid manifest must fail")

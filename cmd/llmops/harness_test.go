@@ -23,9 +23,9 @@ func installedHost(t *testing.T, state string) (configDir, unitDir string) {
 			if state != "ready" {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
-			fmt.Fprintln(w, state)
+			_, _ = fmt.Fprintln(w, state)
 		case "/metrics":
-			fmt.Fprintln(w, "llmops_weights_load_seconds 39.2")
+			_, _ = fmt.Fprintln(w, "llmops_weights_load_seconds 39.2")
 		default:
 			http.NotFound(w, r)
 		}
@@ -181,9 +181,13 @@ gpu: {type: gb10, count: 1, nodes: 1}
 context_max: 4096
 args: ["--max-model-len=4096", "--gpu-memory-utilization=0.65"]
 `
-	os.WriteFile(filepath.Join(cfg, "qwen.yaml"), []byte(data), 0o644)
-	os.WriteFile(filepath.Join(units, "qwen.service"),
-		[]byte("[Service]\nExecStart=/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml --port 1\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(cfg, "qwen.yaml"), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(units, "qwen.service"),
+		[]byte("[Service]\nExecStart=/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml --port 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var out, errw strings.Builder
 	if code := run([]string{"run", "claude", "--config-dir", cfg, "--unit-dir", units}, &out, &errw); code == 0 {
@@ -221,12 +225,12 @@ func TestRunWaitsForALoadingModel(t *testing.T) {
 			calls++
 			if calls < 3 { // loading, then ready
 				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintln(w, "loading")
+				_, _ = fmt.Fprintln(w, "loading")
 				return
 			}
-			fmt.Fprintln(w, "ready")
+			_, _ = fmt.Fprintln(w, "ready")
 		case "/metrics":
-			fmt.Fprintln(w, "llmops_weights_load_seconds 39.2")
+			_, _ = fmt.Fprintln(w, "llmops_weights_load_seconds 39.2")
 		default:
 			http.NotFound(w, r)
 		}
@@ -246,9 +250,13 @@ gpu: {type: gb10, count: 1, nodes: 1}
 context_max: 4096
 args: ["--max-model-len=4096", "--gpu-memory-utilization=0.65"]
 `
-	os.WriteFile(filepath.Join(cfg, "qwen.yaml"), []byte(data), 0o644)
-	os.WriteFile(filepath.Join(units, "qwen.service"), fmt.Appendf(nil,
-		"[Service]\nExecStart=/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml --port %d\n", port), 0o644)
+	if err := os.WriteFile(filepath.Join(cfg, "qwen.yaml"), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(units, "qwen.service"), fmt.Appendf(nil,
+		"[Service]\nExecStart=/usr/local/bin/llmops serve --manifest /etc/llmops/qwen.yaml --port %d\n", port), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Stub the exec: reaching the real one would replace this test
 	// binary with the harness, which is what happened before this hook

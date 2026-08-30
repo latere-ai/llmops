@@ -55,7 +55,7 @@ func CheckMemoryBudget(m *manifest.Manifest, weightsDir string, log io.Writer) e
 	}
 	total, err := memTotalBytes()
 	if err != nil {
-		fmt.Fprintf(log, "preflight: cannot read %s (%v); skipping the memory budget check\n", meminfoPath, err)
+		_, _ = fmt.Fprintf(log, "preflight: cannot read %s (%v); skipping the memory budget check\n", meminfoPath, err)
 		return nil
 	}
 	frac, ok := engineFraction(m)
@@ -64,13 +64,13 @@ func CheckMemoryBudget(m *manifest.Manifest, weightsDir string, log io.Writer) e
 	}
 	ckpt, err := dirBytes(weightsDir)
 	if err != nil {
-		fmt.Fprintf(log, "preflight: cannot size %s (%v); skipping the memory budget check\n", weightsDir, err)
+		_, _ = fmt.Fprintf(log, "preflight: cannot size %s (%v); skipping the memory budget check\n", weightsDir, err)
 		return nil
 	}
 
 	engine := int64(frac * float64(total))
 	need := engine + ckpt + hostFloorBytes
-	fmt.Fprintf(log, "preflight: pool %s, engine %s (%.2f), checkpoint %s, host floor %s\n",
+	_, _ = fmt.Fprintf(log, "preflight: pool %s, engine %s (%.2f), checkpoint %s, host floor %s\n",
 		gib(total), gib(engine), frac, gib(ckpt), gib(hostFloorBytes))
 	if need <= total {
 		return nil
@@ -82,7 +82,7 @@ func CheckMemoryBudget(m *manifest.Manifest, weightsDir string, log io.Writer) e
 		"refusing to start: %s + checkpoint %s + host floor %s = %s, more than this host's %s.\n"+
 			"  On %s the CPU and GPU share one pool and the engine fills its fraction, so this "+
 			"leaves the kernel too little to stay reachable — it stalls rather than killing the engine.\n"+
-			"  Lower %s to %.2f or below.",
+			"  Lower %s to %.2f or below",
 		gib(engine), gib(ckpt), gib(hostFloorBytes), gib(need), gib(total),
 		manifest.GPUTypeGB10, memFractionFlagFor(m), floorTo2dp(safe))
 }

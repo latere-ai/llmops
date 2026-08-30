@@ -82,7 +82,9 @@ context_max: 4096
 func writeLWS(t *testing.T, deployDir, model, body string) {
 	t.Helper()
 	dir := filepath.Join(deployDir, model)
-	os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "lws.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +114,9 @@ args: ["--max-model-len=4096", "--gpu-memory-utilization=0.65"]
 func writeUnit(t *testing.T, deployDir, model, execStart string) {
 	t.Helper()
 	dir := filepath.Join(deployDir, model)
-	os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	body := "[Unit]\nDescription=llmops " + model + "\n\n[Service]\nExecStart=" + execStart +
 		"\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n"
 	if err := os.WriteFile(filepath.Join(dir, model+".service"), []byte(body), 0o644); err != nil {
@@ -504,7 +508,9 @@ func TestValidateEmptyModels(t *testing.T) {
 
 func TestValidateBadModelsDir(t *testing.T) {
 	models := t.TempDir()
-	os.WriteFile(filepath.Join(models, "bad.yaml"), []byte("name: x\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(models, "bad.yaml"), []byte("name: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := Validate(models, t.TempDir()); err == nil {
 		t.Fatal("invalid model manifest must error")
 	}
