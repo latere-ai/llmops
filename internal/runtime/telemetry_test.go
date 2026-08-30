@@ -410,7 +410,7 @@ func TestShimExportsGaugesAsInstruments(t *testing.T) {
 	defer func() { _ = unregister() }()
 
 	s.SetWeightsLoaded(39200 * time.Millisecond)
-	s.recordLoss(ir.DialectAnthropicMessages, []string{"top_k"})
+	s.recordLoss(context.Background(), ir.DialectAnthropicMessages, []string{"top_k"})
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &rm); err != nil {

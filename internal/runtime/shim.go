@@ -456,7 +456,7 @@ func (s *Shim) translated(w http.ResponseWriter, r *http.Request, sf *surface, b
 			names[i] = string(f)
 		}
 		w.Header().Set(LossHeader, strings.Join(names, ","))
-		s.recordLoss(sf.dialect, names)
+		s.recordLoss(r.Context(), sf.dialect, names)
 	}
 	if out, err = injectSystemPrompt(out, s.SystemPrompt); err != nil {
 		http.Error(w, fmt.Sprintf("inject system prompt: %v", err), http.StatusBadRequest)
@@ -508,12 +508,15 @@ type lossKey struct {
 // recordLoss counts how often a surface could not carry a field. How
 // often callers ask for something a dialect cannot express is a fact
 // about whether that surface is the right one.
-func (s *Shim) recordLoss(d ir.Dialect, fields []string) {
+// The context is the request's. Recording on context.Background() would
+// detach the measurement from the span that caused it, which is what makes a
+// loss attributable to a caller rather than only countable in aggregate.
+func (s *Shim) recordLoss(ctx context.Context, d ir.Dialect, fields []string) {
 	for _, f := range fields {
 		v, _ := s.lossCount.LoadOrStore(lossKey{d, f}, new(atomic.Int64))
 		v.(*atomic.Int64).Add(1)
 		if s.lossTotal != nil {
-			s.lossTotal.Add(context.Background(), 1, metric.WithAttributes(
+			s.lossTotal.Add(ctx, 1, metric.WithAttributes(
 				attribute.String("dialect", string(d)),
 				attribute.String("field", f)))
 		}
