@@ -3,7 +3,7 @@ GO ?= go
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate deps spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize
+.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize
 
 build:
 	$(GO) build ./...
@@ -42,7 +42,7 @@ test-race:
 # Validate all model manifests + deploy consistency (also run in `test`
 # via internal/deploycheck). The spec tree is a separate target now; see
 # spec-lint below.
-validate: deps
+validate: deps cgo-free
 	$(GO) run ./cmd/llmops validate models/
 
 # The CLI's dependency footprint. A dependency arriving is not a failure; one
@@ -50,6 +50,13 @@ validate: deps
 # The allowlist, whose value is the reason, lives in .lateregate.yaml.
 deps:
 	@$(GO) tool lateregate depcheck
+
+# `make dist` builds with CGO_ENABLED=0 and docs/development.md says "no cgo".
+# A claim in a user-facing document with no gate behind it goes stale silently.
+# Reads source rather than the build, because a file can import "C" behind a
+# build tag this platform does not select and still be a violation.
+cgo-free:
+	@$(GO) tool lateregate cgo-free
 
 # The spec tree checks: frontmatter, the closed status vocabulary, the index
 # rows, dependency edges and wikilinks. Conventions live in .lateregate.yaml.
