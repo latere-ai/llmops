@@ -3,7 +3,7 @@ GO ?= go
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config lint
+.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config lint lint-otel
 
 build:
 	$(GO) build ./...
@@ -79,6 +79,34 @@ hooks:
 vet:
 	$(GO) vet ./...
 
+# lint-otel fails on an outbound http.Client that is not instrumented.
+#
+# An uninstrumented client starts a new root trace on the hop it makes, so the
+# caller's trace ends at this process and the time spent upstream cannot be
+# attributed to anything. That is the whole failure this repo's telemetry
+# exists to prevent, and it is invisible in review: the code compiles, the
+# tests pass, and the gap only shows up as a trace that stops.
+#
+# Two shapes are checked. The literal, which must keep its Transport field on
+# the same line so the grep can see it, and http.DefaultClient, which carries
+# no instrumentation at all and is how internal/mirror/hf.go went dark.
+#
+# Test files are exempt: a test client talks to an httptest server in-process,
+# and comment lines are exempt so a note explaining the rule cannot trip it.
+lint-otel:
+	@bad=$$(grep -rn '&http.Client{' --include='*.go' cmd internal | grep -v Transport | grep -v _test.go | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true); \
+	if [ -n "$$bad" ]; then \
+		echo "bare &http.Client{} without an otel-instrumented Transport:" >&2; \
+		echo "$$bad" >&2; \
+		exit 1; \
+	fi
+	@bad=$$(grep -rn 'http.DefaultClient' --include='*.go' cmd internal | grep -v _test.go | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true); \
+	if [ -n "$$bad" ]; then \
+		echo "http.DefaultClient carries no trace context; use otel.HTTPClient():" >&2; \
+		echo "$$bad" >&2; \
+		exit 1; \
+	fi
+
 # lint-modernize fails on code that a standard library call already covers.
 # It runs the toolchain modernizers, which overlap golangci-lint's modernize
 # linter but add three it does not carry: buildtag, hostport, and the
@@ -101,7 +129,7 @@ lint-config:
 # the shape these gates exist to avoid.
 GOLANGCI_VERSION ?= v2.13.1
 
-lint: lint-config
+lint: lint-config lint-otel
 	@$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run ./...
 
 # CI-runnable e2e: full pull→push→verify and serve

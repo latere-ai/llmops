@@ -4,13 +4,16 @@ name: ci
 # them) and latere-ai/ci-gate (which decides what each one asserts). This file
 # is the caller.
 #
-# The pipeline probes the Makefile and runs what it finds, so a gate is turned
-# on here by adding a target, not by editing this file. Today that is:
+# The pipeline probes the Makefile for a fixed set of targets and runs the ones
+# it finds, so a gate in that set is turned on by adding a target rather than
+# by editing this file. Today that is:
 #
 #   required   fmt-check, test, lint-modernize
 #   optional   test-hermetic, test-race, cover, spec-lint, dist, validate
 #
-# Every one of those also runs locally, which is the point: three CI failures
+# A target outside that set needs a job here, which is why lint-otel has one.
+#
+# Every one of these also runs locally, which is the point: three CI failures
 # in one day came from tests that depended on what happened to be installed on
 # the machine running them, and each passed on a laptop first.
 
@@ -25,3 +28,17 @@ permissions:
 jobs:
   verify:
     uses: latere-ai/ci/.github/workflows/go-verify.yml@v1
+
+  # An outbound client with no instrumented transport starts a new root trace,
+  # so the caller's trace ends at this process and the time spent upstream is
+  # unattributable. llmops sits on the inference data path, which makes that
+  # the one gap worth a job of its own.
+  #
+  # No Go toolchain: the target reads source, so a checkout is the whole setup.
+  otel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Instrumented HTTP clients
+        run: make lint-otel
