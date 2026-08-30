@@ -16,6 +16,8 @@ import (
 
 	"github.com/latere-ai/llmops/internal/manifest"
 	"github.com/latere-ai/llmops/internal/runtime"
+
+	"latere.ai/x/pkg/otel"
 )
 
 // DefaultPort is what `llmops serve` listens on unless told otherwise.
@@ -106,7 +108,9 @@ func portFromUnit(path string) int {
 // Asking the endpoint which model it serves is what makes `ps` report
 // reality rather than a coincidence of port numbers.
 func probe(name string, port int, timeout time.Duration) (state string, loaded float64, speculator string) {
-	c := &http.Client{Timeout: timeout}
+	// `llmops ps` probes an endpoint this same process may be serving.
+	// Instrumented, the probe and whatever it finds share one trace.
+	c := &http.Client{Transport: otel.Transport(nil), Timeout: timeout}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	resp, err := get(c, base+"/ready")

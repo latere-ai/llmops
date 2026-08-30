@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"latere.ai/x/pkg/otel"
 )
 
 // Config is one bench run.
@@ -83,7 +85,11 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	if cfg.TimeoutSecs <= 0 {
 		cfg.TimeoutSecs = 120
 	}
-	client := &http.Client{Timeout: time.Duration(cfg.TimeoutSecs * float64(time.Second))}
+	// The benchmark measures the endpoint it calls, so its requests belong
+	// in the same trace as the serving they provoke: a slow sample is then
+	// answerable with the server and engine spans underneath it rather
+	// than a number with no explanation.
+	client := &http.Client{Transport: otel.Transport(nil), Timeout: time.Duration(cfg.TimeoutSecs * float64(time.Second))}
 
 	jobs := make(chan int)
 	samples := make([]sample, cfg.Requests)

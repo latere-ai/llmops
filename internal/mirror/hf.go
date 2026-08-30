@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
+
+	"latere.ai/x/pkg/otel"
 )
 
 // TreeFile is one file in an HF repo revision. SHA256 is set for LFS
@@ -26,8 +28,12 @@ type HFClient struct {
 	HTTP *http.Client
 }
 
+// NewHFClient returns a Hub client whose transport carries the trace
+// context. http.DefaultClient carried none, so a weight pull was a hole
+// in the trace of whatever asked for it, and a slow Hub could not be
+// told from a slow disk.
 func NewHFClient() *HFClient {
-	return &HFClient{Base: "https://huggingface.co", HTTP: http.DefaultClient}
+	return &HFClient{Base: "https://huggingface.co", HTTP: otel.HTTPClient()}
 }
 
 // get issues one Hub request under the caller's context, so a cancelled
