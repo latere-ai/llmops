@@ -150,6 +150,13 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("prepare draft head for speculator %q: %w", spec.Name, err)
 	}
+
+	// After the weights are on disk and before the engine allocates:
+	// this is the moment the checkpoint is in page cache and the engine
+	// is about to claim its fraction of the same pool.
+	if err := CheckMemoryBudget(m, model, opts.Log); err != nil {
+		return err
+	}
 	shim.SetWeightsLoaded(time.Since(start))
 	fmt.Fprintf(opts.Log, "weights ready in %.1fs, launching %s (speculator: %s)\n",
 		time.Since(start).Seconds(), m.Runtime, spec.Name)

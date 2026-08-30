@@ -170,6 +170,52 @@ uv venv ~/.venvs/llmops-sglang
 uv pip install --python ~/.venvs/llmops-sglang/bin/python sglang==0.5.18
 ```
 
+### Make the host recoverable before you serve on it
+
+A single GPU box with unified memory can be taken down by a
+configuration mistake, not just a hardware fault. The CPU and GPU draw
+from one pool, so an engine that claims too much of it leaves the kernel
+unable to reclaim — and the machine stops answering SSH rather than
+killing the engine and staying up. If the box is remote, that costs you
+the machine until someone walks to it.
+
+Two host settings turn that from "dead until a visit" into "back in a
+minute". Apply them **before** the first serve, not after:
+
+```sh
+# 1. Hardware watchdog: reset the box if the kernel stops responding.
+ls /dev/watchdog*                       # confirm the device exists first
+sudo sed -i 's/^#\?RuntimeWatchdogSec=.*/RuntimeWatchdogSec=60s/' /etc/systemd/system.conf
+sudo sed -i 's/^#\?RebootWatchdogSec=.*/RebootWatchdogSec=5min/'  /etc/systemd/system.conf
+sudo systemctl daemon-reexec
+
+# 2. Reboot on panic and on out-of-memory, rather than hanging.
+printf 'kernel.panic=10\nkernel.panic_on_oops=1\nvm.panic_on_oom=0\n' \
+  | sudo tee /etc/sysctl.d/99-llmops-recover.conf
+sudo sysctl --system
+```
+
+`RuntimeWatchdogSec=60s` has systemd pet the hardware watchdog every
+30 s; if the kernel stalls, the watchdog fires and the box reboots on
+its own. That is the setting that matters when you cannot reach the
+power button.
+
+Also make sure the journal survives the reboot, or you lose the evidence
+for why it happened:
+
+```sh
+sudo mkdir -p /var/log/journal && sudo systemd-journal-flush
+journalctl -k -b -1 | tail -60      # the previous boot, after a crash
+```
+
+Keep diagnostics out of `/tmp` on such a host — it is cleared on boot,
+which is exactly when you need them.
+
+`llmops serve` refuses a start whose memory fraction plus the checkpoint
+it just read would not leave the host a working reserve, so the common
+case is caught before anything allocates. The settings above cover what
+it cannot predict.
+
 ### Choosing a draft head
 
 A model offering `speculators` picks one when it starts, because which
