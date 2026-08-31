@@ -122,7 +122,7 @@ func (s *Shim) registerMetrics() (func() error, error) {
 	s.lossTotal = loss
 
 	reg, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		o.ObserveFloat64(weights, s.weightsSecs.Load().(float64))
+		o.ObserveFloat64(weights, s.weightsSecs.Load().(float64)) //nolint:errcheck // newShim stores a float64 before returning, and it is the only constructor
 		if s.Speculator != "" {
 			o.ObserveInt64(spec, 1, metric.WithAttributes(
 				attribute.String("speculator", s.Speculator)))
@@ -236,7 +236,7 @@ func (s *Shim) SetWeightsLoaded(d time.Duration) {
 }
 
 func (s *Shim) weightsLoaded() bool {
-	return s.weightsSecs.Load().(float64) > 0
+	return s.weightsSecs.Load().(float64) > 0 //nolint:errcheck // newShim stores a float64 before returning, and it is the only constructor
 }
 
 // EngineHealthy polls the engine's own health endpoint (both SGLang and
@@ -514,7 +514,7 @@ type lossKey struct {
 func (s *Shim) recordLoss(ctx context.Context, d ir.Dialect, fields []string) {
 	for _, f := range fields {
 		v, _ := s.lossCount.LoadOrStore(lossKey{d, f}, new(atomic.Int64))
-		v.(*atomic.Int64).Add(1)
+		v.(*atomic.Int64).Add(1) //nolint:errcheck // the LoadOrStore above is the only writer, and it stores a *atomic.Int64
 		if s.lossTotal != nil {
 			s.lossTotal.Add(ctx, 1, metric.WithAttributes(
 				attribute.String("dialect", string(d)),
@@ -540,7 +540,7 @@ func (s *Shim) metrics(ctx context.Context, w http.ResponseWriter) {
 	}
 	_, _ = fmt.Fprintf(w, "# HELP llmops_weights_load_seconds Time spent preparing weights before engine start.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE llmops_weights_load_seconds gauge\n")
-	_, _ = fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64))
+	_, _ = fmt.Fprintf(w, "llmops_weights_load_seconds %g\n", s.weightsSecs.Load().(float64)) //nolint:errcheck // newShim stores a float64 before returning
 
 	// A label-only gauge, so a throughput panel can be broken down by
 	// the speculator that produced it (specs/010, specs/027).
@@ -554,9 +554,9 @@ func (s *Shim) metrics(ctx context.Context, w http.ResponseWriter) {
 	// could not carry (specs/025).
 	var lines []string
 	s.lossCount.Range(func(k, v any) bool {
-		key := k.(lossKey)
+		key := k.(lossKey) //nolint:errcheck // recordLoss is the only writer, and it keys on lossKey
 		lines = append(lines, fmt.Sprintf("llmops_dialect_loss_total{dialect=%q,field=%q} %d",
-			string(key.dialect), key.field, v.(*atomic.Int64).Load()))
+			string(key.dialect), key.field, v.(*atomic.Int64).Load())) //nolint:errcheck // recordLoss stores *atomic.Int64 only
 		return true
 	})
 	if len(lines) > 0 {
