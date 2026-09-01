@@ -18,13 +18,17 @@ spec:
   #   draft    — nothing of it is in the product
   #   partial  — in the product, a named criterion still open
   #   complete — in the product, every criterion holds
-  status: [draft, partial, complete]
+  #   archived — the work is over, so the spec lives in .archive/
+  status: [draft, partial, complete, archived]
   require: [title, status]
   index: specs/README.md
   wikilinks: true
   # A pipe inside a cell shifts every column after it and nothing else
   # notices: the build passes and the spec renders.
   tables: true
+  archive:
+    dir: .archive
+    statuses: [archived]
 
 hermetic:
   # The system directories, and nothing else. Naming them here is the point:
