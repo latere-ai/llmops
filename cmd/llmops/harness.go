@@ -14,6 +14,11 @@ import (
 
 	"github.com/latere-ai/llmops/internal/harness"
 	"github.com/latere-ai/llmops/internal/install"
+
+	"context"
+	"errors"
+
+	"latere.ai/x/pkg/wait"
 )
 
 // lookHarness and execHarness are the two steps that leave the program:
@@ -214,28 +219,34 @@ func runHarness(rest []string, out, errw io.Writer) error {
 // never starts a stopped one: a verb that silently triggers a
 // ten-minute weight load because a name was typed is doing something
 // nobody asked for (specs/026).
-func awaitReady(configDir, unitDir string, m harness.Model, wait, timeout time.Duration, errw io.Writer) (harness.Model, error) {
+func awaitReady(configDir, unitDir string, m harness.Model, budget, timeout time.Duration, errw io.Writer) (harness.Model, error) {
 	if m.Ready() {
 		return m, nil
 	}
-	if wait <= 0 || m.State == "down" {
+	if budget <= 0 || m.State == "down" {
 		return m, fmt.Errorf("%s is %s; start it with `systemctl start %s.service`, "+
 			"or pass --wait to block on one that is loading", m.Name, m.State, m.Name)
 	}
-	_, _ = fmt.Fprintf(errw, "# %s is %s; waiting up to %s\n", m.Name, m.State, wait)
-	deadline := time.Now().Add(wait)
-	for time.Now().Before(deadline) {
-		time.Sleep(2 * time.Second)
-		got, err := resolveModel(configDir, unitDir, m.Name, timeout)
-		if err != nil {
-			return m, err
-		}
-		if got.Ready() {
-			return got, nil
+	_, _ = fmt.Fprintf(errw, "# %s is %s; waiting up to %s\n", m.Name, m.State, budget)
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	got := m
+	err := wait.Until(ctx, 2*time.Second, func(context.Context) (bool, error) {
+		var err error
+		if got, err = resolveModel(configDir, unitDir, m.Name, timeout); err != nil {
+			return false, err
 		}
 		if got.State == "down" {
-			return got, fmt.Errorf("%s went down while waiting", m.Name)
+			return false, fmt.Errorf("%s went down while waiting", m.Name)
 		}
+		return got.Ready(), nil
+	})
+	switch {
+	case err == nil:
+		return got, nil
+	case errors.Is(err, context.DeadlineExceeded):
+		return m, fmt.Errorf("%s did not become ready within %s", m.Name, budget)
+	default:
+		return got, err
 	}
-	return m, fmt.Errorf("%s did not become ready within %s", m.Name, wait)
 }
