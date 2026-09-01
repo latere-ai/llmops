@@ -19,6 +19,8 @@ import (
 
 	"github.com/latere-ai/llmops/internal/manifest"
 	"github.com/latere-ai/llmops/internal/mirror"
+
+	"latere.ai/x/pkg/wait/waittest"
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
@@ -540,18 +542,14 @@ func TestRenderOverride(t *testing.T) {
 
 func waitFor(t *testing.T, url string, code int, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	waittest.For(t, timeout, func() bool {
 		resp, err := http.Get(url)
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == code {
-				return
-			}
+		if err != nil {
+			return false
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("%s never returned %d", url, code)
+		_ = resp.Body.Close()
+		return resp.StatusCode == code
+	})
 }
 
 // chatEngine fakes the engine's OpenAI Chat surface for dialect tests.
