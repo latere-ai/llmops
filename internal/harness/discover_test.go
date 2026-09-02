@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 package harness
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +82,7 @@ func TestDiscoverReportsWhatIsAnswering(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
 
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +110,7 @@ func TestDiscoverShowsInstalledButDownModels(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", 1) // nothing listens on port 1
 
-	got, err := Discover(cfg, units, 200*time.Millisecond)
+	got, err := Discover(context.Background(), cfg, units, 200*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +128,7 @@ func TestDiscoverReportsLoading(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
 
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +144,7 @@ func TestPortComesFromTheUnit(t *testing.T) {
 	cfg, units := t.TempDir(), t.TempDir()
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", 9123)
-	got, err := Discover(cfg, units, 100*time.Millisecond)
+	got, err := Discover(context.Background(), cfg, units, 100*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +157,7 @@ func TestPortComesFromTheUnit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(units, "qwen.service"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = Discover(cfg, units, 100*time.Millisecond)
+	got, _ = Discover(context.Background(), cfg, units, 100*time.Millisecond)
 	if got[0].Port != 9124 {
 		t.Fatalf("port %d, want 9124 from the --port= form", got[0].Port)
 	}
@@ -162,7 +166,7 @@ func TestPortComesFromTheUnit(t *testing.T) {
 func TestPortFallsBackWhenNoUnit(t *testing.T) {
 	cfg, units := t.TempDir(), t.TempDir()
 	writeInstalled(t, cfg, "qwen") // started by hand: no unit at all
-	got, err := Discover(cfg, units, 100*time.Millisecond)
+	got, err := Discover(context.Background(), cfg, units, 100*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +203,7 @@ func TestDiscoverRejectsAPortServingAnotherModel(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
 
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +231,7 @@ func TestDiscoverTrustsAnEngineWithoutAModelList(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
 
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

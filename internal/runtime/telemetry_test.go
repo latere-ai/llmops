@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 package runtime
 
 import (
@@ -191,7 +194,7 @@ func serveForTracing(t *testing.T, engine *httptest.Server) string {
 			CacheRoot:  t.TempDir(),
 			EngineCmd:  []string{"sleep", "60"},
 			Log:        io.Discard,
-			Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+			Logger:     slog.New(slog.DiscardHandler),
 		})
 	}()
 	t.Cleanup(func() {

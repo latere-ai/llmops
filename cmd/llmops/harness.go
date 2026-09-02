@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -56,7 +59,7 @@ func runPS(rest []string, out, errw io.Writer) error {
 	if err := fs.Parse(rest); err != nil {
 		return usagef("usage: llmops ps [--json]")
 	}
-	models, err := harness.Discover(*configDir, *unitDir, *timeout)
+	models, err := harness.Discover(context.Background(), *configDir, *unitDir, *timeout)
 	if err != nil {
 		return err
 	}
@@ -88,8 +91,8 @@ func runPS(rest []string, out, errw io.Writer) error {
 }
 
 // resolveModel finds one installed model by name, or the only one.
-func resolveModel(configDir, unitDir, name string, timeout time.Duration) (harness.Model, error) {
-	models, err := harness.Discover(configDir, unitDir, timeout)
+func resolveModel(ctx context.Context, configDir, unitDir, name string, timeout time.Duration) (harness.Model, error) {
+	models, err := harness.Discover(ctx, configDir, unitDir, timeout)
 	if err != nil {
 		return harness.Model{}, err
 	}
@@ -126,7 +129,7 @@ func runEndpoint(rest []string, out, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	m, err := resolveModel(*configDir, *unitDir, *model, *timeout)
+	m, err := resolveModel(context.Background(), *configDir, *unitDir, *model, *timeout)
 	if err != nil {
 		return err
 	}
@@ -187,7 +190,7 @@ func runHarness(rest []string, out, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	m, err := resolveModel(*configDir, *unitDir, *model, *timeout)
+	m, err := resolveModel(context.Background(), *configDir, *unitDir, *model, *timeout)
 	if err != nil {
 		return err
 	}
@@ -231,9 +234,9 @@ func awaitReady(configDir, unitDir string, m harness.Model, budget, timeout time
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	got := m
-	err := wait.Until(ctx, 2*time.Second, func(context.Context) (bool, error) {
+	err := wait.Until(ctx, 2*time.Second, func(ctx context.Context) (bool, error) {
 		var err error
-		if got, err = resolveModel(configDir, unitDir, m.Name, timeout); err != nil {
+		if got, err = resolveModel(ctx, configDir, unitDir, m.Name, timeout); err != nil {
 			return false, err
 		}
 		if got.State == "down" {

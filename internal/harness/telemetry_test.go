@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 package harness
 
 import (
@@ -80,7 +83,7 @@ func TestDiscoverPropagatesTraceContext(t *testing.T) {
 	cfg, units := t.TempDir(), t.TempDir()
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 package harness
 
 import (
@@ -54,7 +57,7 @@ func (m Model) Ready() bool { return m.State == "ready" }
 // port is a property of the deployment, and the unit already carries it.
 // Growing a port field on the manifest would put the same fact in two
 // places.
-func Discover(configDir, unitDir string, timeout time.Duration) ([]Model, error) {
+func Discover(ctx context.Context, configDir, unitDir string, timeout time.Duration) ([]Model, error) {
 	ms, err := manifest.LoadDir(configDir)
 	if err != nil {
 		return nil, err
@@ -67,7 +70,7 @@ func Discover(configDir, unitDir string, timeout time.Duration) ([]Model, error)
 			GPU:     fmt.Sprintf("%dx%s", m.GPU.Count, m.GPU.Type),
 			Port:    portFromUnit(filepath.Join(unitDir, m.Name+".service")),
 		}
-		mod.State, mod.Loaded, mod.Speculator = probe(mod.Name, mod.Port, timeout)
+		mod.State, mod.Loaded, mod.Speculator = probe(ctx, mod.Name, mod.Port, timeout)
 		out = append(out, mod)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -107,13 +110,13 @@ func portFromUnit(path string) int {
 // whatever is serving there would otherwise be reported as all of them.
 // Asking the endpoint which model it serves is what makes `ps` report
 // reality rather than a coincidence of port numbers.
-func probe(name string, port int, timeout time.Duration) (state string, loaded float64, speculator string) {
+func probe(ctx context.Context, name string, port int, timeout time.Duration) (state string, loaded float64, speculator string) {
 	// `llmops ps` probes an endpoint this same process may be serving.
 	// Instrumented, the probe and whatever it finds share one trace.
 	c := &http.Client{Transport: otel.Transport(nil), Timeout: timeout}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	resp, err := get(c, base+"/ready")
+	resp, err := get(ctx, c, base+"/ready")
 	if err != nil {
 		return "down", 0, ""
 	}
@@ -130,18 +133,18 @@ func probe(name string, port int, timeout time.Duration) (state string, loaded f
 	if resp.StatusCode != http.StatusOK && state != "loading" {
 		state = "down"
 	}
-	if state == "ready" && !serves(c, base, name) {
+	if state == "ready" && !serves(ctx, c, base, name) {
 		// Something is up on this port, but not this model.
 		return "down", 0, ""
 	}
-	return state, weightsLoaded(c, base), speculator
+	return state, weightsLoaded(ctx, c, base), speculator
 }
 
 // serves reports whether the endpoint is serving this model. An engine
 // that does not answer /v1/models gets the benefit of the doubt: the
 // check exists to catch a wrong model, not to demand a surface.
-func serves(c *http.Client, base, name string) bool {
-	resp, err := get(c, base+"/v1/models")
+func serves(ctx context.Context, c *http.Client, base, name string) bool {
+	resp, err := get(ctx, c, base+"/v1/models")
 	if err != nil {
 		return true
 	}
@@ -167,8 +170,8 @@ func serves(c *http.Client, base, name string) bool {
 
 // weightsLoaded pulls llmops_weights_load_seconds out of /metrics — the
 // gauge the shim already exports, so `ps` needs no new plumbing.
-func weightsLoaded(c *http.Client, base string) float64 {
-	resp, err := get(c, base+"/metrics")
+func weightsLoaded(ctx context.Context, c *http.Client, base string) float64 {
+	resp, err := get(ctx, c, base+"/metrics")
 	if err != nil {
 		return 0
 	}
@@ -183,15 +186,10 @@ func weightsLoaded(c *http.Client, base string) float64 {
 	return 0
 }
 
-// get issues one probe request.
-//
-// The context is context.Background() on purpose: Discover is a synchronous
-// call with no context in its signature, and each probe is already bounded by
-// the caller's timeout on the http.Client. What is missing is cancellation,
-// and there is nothing here to cancel it from -- `llmops ps` runs to
-// completion or the process goes away with it.
-func get(c *http.Client, url string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+// get issues one probe request on the caller's context, so a cancelled
+// `llmops ps` stops probing rather than finishing every port first.
+func get(ctx context.Context, c *http.Client, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}

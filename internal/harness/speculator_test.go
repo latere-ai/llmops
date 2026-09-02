@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 package harness
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +36,7 @@ func TestDiscoverReportsTheRunningSpeculator(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
 
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +52,7 @@ func TestDiscoverLeavesTheSpeculatorUnknownWhenNothingAnswers(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", 1) // nothing listening
 
-	got, err := Discover(cfg, units, 200*time.Millisecond)
+	got, err := Discover(context.Background(), cfg, units, 200*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +85,7 @@ func TestDiscoverDropsTheSpeculatorOfAnotherModel(t *testing.T) {
 	writeInstalled(t, cfg, "qwen")
 	writeUnitWithPort(t, units, "qwen", portOf(t, srv))
 
-	got, err := Discover(cfg, units, time.Second)
+	got, err := Discover(context.Background(), cfg, units, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
