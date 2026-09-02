@@ -1,15 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Latere AI
+# SPDX-License-Identifier: MIT
+
 GO ?= go
 # Image registry/namespace prefix — override for Nexus, ECR, Harbor, etc.
 # e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
-.PHONY: build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config lint lint-otel
+.PHONY: check build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config lint lint-otel
 
 build:
 	$(GO) build ./...
 
-test: lint-config vet
-	$(GO) test ./...
+test: vet
+	@go tool lateregate test
 
 # Coverage gate, per package rather than as a repository average: an
 # average lets a well-tested package carry an untested one and reports a
@@ -37,7 +40,7 @@ test-hermetic:
 # The race detector needs cgo, which the shipped binaries do not: this is
 # about finding a race in the test harness, not about what we compile to.
 test-race:
-	CGO_ENABLED=1 $(GO) test -race ./...
+	@go tool lateregate race
 
 # Validate all model manifests + deploy consistency (also run in `test`
 # via internal/deploycheck). The spec tree is a separate target now; see
@@ -106,13 +109,8 @@ lint-modernize:
 lint-config:
 	@$(GO) tool lateregate golangci
 
-# Runs the linter the CI lint job runs, against the config lint-config renders.
-# Without this the only machine that ever lints this repo is a runner, which is
-# the shape these gates exist to avoid.
-GOLANGCI_VERSION ?= v2.13.1
-
-lint: lint-config lint-otel
-	@$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run ./...
+lint: lint-otel
+	@go tool lateregate lint
 
 # CI-runnable e2e: full pull→push→verify and serve
 # serve→ready→metrics paths against fakes (no GPU, no network).
@@ -172,3 +170,9 @@ clean:
 # Needs Docker and uv; zero cloud credentials. ~1.5 GB one-time download.
 e2e-local:
 	bash e2e/local/run.sh
+
+# The whole shared bar. Every gate lives in lateregate, pinned as a tool in
+# go.mod; this target is a name for `go tool lateregate` and nothing else.
+# The plan: `go tool lateregate list`. One gate: `go tool lateregate <gate>`.
+check:
+	@go tool lateregate
