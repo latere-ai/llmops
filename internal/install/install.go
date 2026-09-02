@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package install renders and places the artifacts a bare-metal host
 // needs to serve a model: the systemd unit and the manifest it names
 // (specs/020-bare-metal-packaging.md).

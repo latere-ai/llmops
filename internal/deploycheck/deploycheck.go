@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package deploycheck cross-validates deploy/ manifests against
 // models/ manifests (specs/008-k8s-serving.md AC1: rendering/consistency
 // is a CI gate, GPU serving is a release gate).

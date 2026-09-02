@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package runtime turns a models/<name>.yaml manifest into a serving
 // process: weight preparation, engine launch, and the latere health
 // contract (specs/003-serving-runtime.md).

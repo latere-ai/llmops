@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Command llmops owns the open-weights inference layer end to end:
 // fetching and freezing weights, serving a model, and measuring what is
 // serving (specs/024-single-cli.md).

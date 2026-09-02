@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package bench drives an OpenAI-compatible endpoint and reports
 // latency/throughput (specs/010-observability-bench.md). It measures the
 // serving path only, not answer quality.

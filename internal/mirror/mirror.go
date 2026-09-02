@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package mirror freezes Hugging Face model weights into an object
 // store: pull → verify → push → verify (specs/002-weights-registry.md).
 package mirror

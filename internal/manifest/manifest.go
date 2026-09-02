@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package manifest defines the models/<name>.yaml schema — the single
 // source of truth a deploy consumes (specs/003-serving-runtime.md).
 package manifest

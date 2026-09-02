@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: MIT
+
 // Package harness renders the configuration a coding agent needs to
 // talk to a model we serve (specs/026-harness-integration.md).
 //
