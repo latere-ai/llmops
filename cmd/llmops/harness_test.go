@@ -22,7 +22,7 @@ func installedHost(t *testing.T, state string) (configDir, unitDir string) {
 	configDir, unitDir = t.TempDir(), t.TempDir()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			if state != "ready" {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
@@ -224,7 +224,7 @@ func TestRunWaitsForALoadingModel(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			calls++
 			if calls < 3 { // loading, then ready
 				w.WriteHeader(http.StatusServiceUnavailable)

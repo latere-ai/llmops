@@ -23,7 +23,7 @@ func TestDiscoverReportsTheRunningSpeculator(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(runtime.SpeculatorHeader, "dflash2")
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
 			_, _ = fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
@@ -72,7 +72,7 @@ func TestDiscoverDropsTheSpeculatorOfAnotherModel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(runtime.SpeculatorHeader, "dspark")
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
 			_, _ = fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)

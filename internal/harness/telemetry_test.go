@@ -68,7 +68,7 @@ func TestDiscoverPropagatesTraceContext(t *testing.T) {
 		seen[r.URL.Path] = r.Header.Get("traceparent")
 		mu.Unlock()
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
 			_, _ = fmt.Fprint(w, `{"data":[{"id":"qwen"}]}`)
@@ -91,13 +91,13 @@ func TestDiscoverPropagatesTraceContext(t *testing.T) {
 		t.Fatalf("discover = %+v", got)
 	}
 
-	// One probe is three requests: /ready, /v1/models, /metrics.
+	// One probe is three requests: /readyz, /v1/models, /metrics.
 	if n := clientSpans(rec); n != 3 {
 		t.Fatalf("client spans = %d, want one per probe request", n)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	for _, p := range []string{"/ready", "/v1/models", "/metrics"} {
+	for _, p := range []string{"/readyz", "/v1/models", "/metrics"} {
 		if seen[p] == "" {
 			t.Fatalf("probe of %s carried no traceparent", p)
 		}

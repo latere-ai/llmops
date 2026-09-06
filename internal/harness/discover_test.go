@@ -50,7 +50,7 @@ func fakeShim(t *testing.T, state string, loaded float64) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			if state != "ready" {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
@@ -190,7 +190,7 @@ func TestDiscoverRejectsAPortServingAnotherModel(t *testing.T) {
 	cfg, units := t.TempDir(), t.TempDir()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
 			_, _ = fmt.Fprint(w, `{"data":[{"id":"some-other-model"}]}`)
@@ -218,7 +218,7 @@ func TestDiscoverTrustsAnEngineWithoutAModelList(t *testing.T) {
 	cfg, units := t.TempDir(), t.TempDir()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/ready":
+		case "/readyz":
 			_, _ = fmt.Fprintln(w, "ready")
 		case "/v1/models":
 			http.NotFound(w, r)

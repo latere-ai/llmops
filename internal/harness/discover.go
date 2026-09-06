@@ -116,21 +116,25 @@ func probe(ctx context.Context, name string, port int, timeout time.Duration) (s
 	c := &http.Client{Transport: otel.Transport(nil), Timeout: timeout}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	resp, err := get(ctx, c, base+"/ready")
+	resp, err := get(ctx, c, base+"/readyz")
 	if err != nil {
 		return "down", 0, ""
 	}
-	body, _ := io.ReadAll(resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	// The shim reports the active draft head on every response, so the
 	// answer arrives with the readiness check rather than costing a
 	// second request (specs/027).
 	speculator = resp.Header.Get(runtime.SpeculatorHeader)
-	state = strings.TrimSpace(string(body))
-	if state == "" {
-		state = "down"
-	}
-	if resp.StatusCode != http.StatusOK && state != "loading" {
+	// /readyz is pkg/health's: 200 once the weights are verified and the
+	// engine answers, 503 with the failing check in the body while it
+	// loads. Any other status is not the shim.
+	switch resp.StatusCode {
+	case http.StatusOK:
+		state = "ready"
+	case http.StatusServiceUnavailable:
+		state = "loading"
+	default:
 		state = "down"
 	}
 	if state == "ready" && !serves(ctx, c, base, name) {
