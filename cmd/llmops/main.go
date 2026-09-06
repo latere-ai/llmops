@@ -124,6 +124,20 @@ func run(args []string, out, errw io.Writer) int {
 // to the module's build info, so a binary built any way can say what it
 // is. A hand-copied binary has no image tag to ask (specs/020).
 func versionString() string {
+	v, c := buildIdentity()
+	if c == "" {
+		return v
+	}
+	if len(c) > 12 {
+		c = c[:12]
+	}
+	return v + " (" + c + ")"
+}
+
+// buildIdentity is the version and commit `llmops version` prints and the
+// shim reports on /version: the stamped values, else the module's build
+// info, else "(devel)" with no commit.
+func buildIdentity() (string, string) {
 	v, c := version, commit
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if v == "" {
@@ -140,13 +154,7 @@ func versionString() string {
 	if v == "" {
 		v = "(devel)"
 	}
-	if c == "" {
-		return v
-	}
-	if len(c) > 12 {
-		c = c[:12]
-	}
-	return v + " (" + c + ")"
+	return v, c
 }
 
 // dispatch is the set of verbs `run` accepts, kept beside it so the

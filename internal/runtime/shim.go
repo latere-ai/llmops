@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"latere.ai/x/pkg/health"
 	"latere.ai/x/pkg/llmdialect"
 	"latere.ai/x/pkg/llmdialect/anthropic"
 	"latere.ai/x/pkg/llmdialect/ir"
@@ -35,10 +37,14 @@ import (
 // Shim fronts the engine with the latere service contract
 // (specs/003-serving-runtime.md):
 //
-//	GET /healthz  — 200 once the process is up
-//	GET /ready    — 200 when weights are loaded AND the engine is healthy
+//	GET /livez    — 200 once the process is up
+//	GET /readyz   — 200 when weights are loaded AND the engine is healthy
+//	GET /version  — the build identity
 //	GET /metrics  — engine Prometheus output + llmops_* gauges
 //	anything else — reverse-proxied to the engine (token streaming safe)
+//
+// The four probe paths are pkg/health's; /healthz and /ready are aliases
+// of the first two for one release.
 type Shim struct {
 	engine      *url.URL
 	proxy       *httputil.ReverseProxy
@@ -56,6 +62,15 @@ type Shim struct {
 	// SystemPrompt, when set, is enforced on every chat request —
 	// both dialect surfaces (specs/003).
 	SystemPrompt *manifest.SystemPrompt
+
+	// Version and Commit are the build identity /version reports. Serve
+	// sets them from the binary's own before the shim serves.
+	Version, Commit string
+
+	// probes serves the fleet's probe paths (pkg/health). It is built on
+	// first use so it sees the fields Serve sets after NewShim.
+	probesOnce sync.Once
+	probes     http.Handler
 
 	// enginePath is where the engine listens for the dialect it speaks.
 	enginePath string
@@ -262,14 +277,47 @@ func (s *Shim) EngineHealthy(ctx context.Context) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// probePaths are the paths the shim answers itself for the kubelet, the
+// scraper, and the release smoke: the four of pkg/health, plus /healthz
+// and /ready, aliases of /livez and /readyz for one release while the
+// manifests and `llmops ps` move (docs/health.md in pkg).
+var probePaths = map[string]bool{
+	"/livez": true, "/readyz": true, "/version": true, "/metrics": true,
+	"/healthz": true, "/ready": true,
+}
+
+// probeHandler serves the probe paths through pkg/health. Readiness is
+// verified weights, then engine health, in that order: the engine is not
+// polled while the weights are still loading, as before.
+func (s *Shim) probeHandler() http.Handler {
+	s.probesOnce.Do(func() {
+		s.probes = health.Handler(health.Options{
+			Ready: func(ctx context.Context) error {
+				if !s.weightsLoaded() {
+					return errors.New("weights: loading")
+				}
+				if !s.EngineHealthy(ctx) {
+					return errors.New("engine: not healthy")
+				}
+				return nil
+			},
+			Metrics: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				s.metrics(r.Context(), w)
+			}),
+			Version: s.Version, Commit: s.Commit,
+			LegacyHealthz: true,
+		})
+	})
+	return s.probes
+}
+
 // RouteTemplate bounds the http.route span attribute. The shim proxies
 // whatever the engine serves, so the request path is caller-controlled
 // and unbounded: reporting it raw would put an unbounded label on every
 // span and metric downstream. Only the paths the shim itself answers are
 // reported; everything else is the proxy route.
 func (s *Shim) RouteTemplate(r *http.Request) string {
-	switch r.URL.Path {
-	case "/healthz", "/ready", "/metrics", "/v1/models":
+	if probePaths[r.URL.Path] || r.URL.Path == "/v1/models" {
 		return r.URL.Path
 	}
 	if _, ok := s.surfaces[r.URL.Path]; ok {
@@ -287,19 +335,13 @@ func (s *Shim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(SpeculatorHeader, s.Speculator)
 	}
 	switch r.URL.Path {
-	case "/healthz":
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintln(w, "ok")
 	case "/ready":
-		if s.weightsLoaded() && s.EngineHealthy(r.Context()) {
-			w.WriteHeader(http.StatusOK)
-			_, _ = fmt.Fprintln(w, "ready")
-			return
-		}
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprintln(w, "loading")
-	case "/metrics":
-		s.metrics(r.Context(), w)
+		// The pre-pkg/health spelling of /readyz, kept for one release.
+		r = r.Clone(r.Context())
+		r.URL.Path = "/readyz"
+		s.probeHandler().ServeHTTP(w, r)
+	case "/livez", "/readyz", "/version", "/metrics", "/healthz":
+		s.probeHandler().ServeHTTP(w, r)
 	default:
 		sf, ok := s.surfaces[r.URL.Path]
 		switch {

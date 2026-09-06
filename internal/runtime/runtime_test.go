@@ -312,22 +312,37 @@ func TestShimContract(t *testing.T) {
 		return resp.StatusCode, string(body)
 	}
 
-	// healthz is up regardless of engine state.
-	if code, _ := get("/healthz"); code != 200 {
-		t.Fatalf("/healthz = %d", code)
+	// livez is up regardless of engine state; so is the /healthz alias,
+	// which stays for one release while the manifests move.
+	if code, _ := get("/livez"); code != 200 {
+		t.Fatalf("/livez = %d", code)
 	}
-	// Not ready: weights not loaded, engine unhealthy.
+	if code, _ := get("/healthz"); code != 200 {
+		t.Fatalf("/healthz (legacy alias) = %d", code)
+	}
+	// Not ready: weights not loaded, engine unhealthy. The body names the
+	// check, and the /ready alias answers the same.
+	if code, body := get("/readyz"); code != 503 || !strings.Contains(body, "weights: loading") {
+		t.Fatalf("/readyz before load = %d %q", code, body)
+	}
 	if code, _ := get("/ready"); code != 503 {
-		t.Fatalf("/ready before load = %d", code)
+		t.Fatalf("/ready (legacy alias) before load = %d", code)
 	}
 	// Weights loaded but engine still down → still 503.
 	shim.SetWeightsLoaded(3 * time.Second)
-	if code, _ := get("/ready"); code != 503 {
-		t.Fatalf("/ready with engine down = %d", code)
+	if code, body := get("/readyz"); code != 503 || !strings.Contains(body, "engine: not healthy") {
+		t.Fatalf("/readyz with engine down = %d %q", code, body)
 	}
 	healthy = true
+	if code, _ := get("/readyz"); code != 200 {
+		t.Fatalf("/readyz = %d", code)
+	}
 	if code, _ := get("/ready"); code != 200 {
-		t.Fatalf("/ready = %d", code)
+		t.Fatalf("/ready (legacy alias) = %d", code)
+	}
+	// /version is the build identity.
+	if code, body := get("/version"); code != 200 || !strings.Contains(body, `"version"`) {
+		t.Fatalf("/version = %d %q", code, body)
 	}
 	// Metrics: engine passthrough + our gauge.
 	code, body := get("/metrics")
@@ -423,7 +438,7 @@ func freePort(t *testing.T) int {
 }
 
 // TestServeE2E drives the full entrypoint: weights staged from the
-// store, engine process launched, /ready flips once both are up
+// store, engine process launched, /readyz flips once both are up
 // (specs/003 AC1/AC2 with a fake engine standing in for the GPU one).
 func TestServeE2E(t *testing.T) {
 	store := seedStore(t, weights)
@@ -455,7 +470,7 @@ func TestServeE2E(t *testing.T) {
 	}()
 
 	base := fmt.Sprintf("http://127.0.0.1:%d", shimPort)
-	waitFor(t, base+"/ready", 200, 5*time.Second)
+	waitFor(t, base+"/readyz", 200, 5*time.Second)
 
 	resp, err := http.Get(base + "/metrics")
 	if err != nil {

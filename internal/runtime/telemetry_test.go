@@ -67,7 +67,7 @@ func TestServeLogsLifecycleStructured(t *testing.T) {
 		})
 	}()
 
-	waitFor(t, fmt.Sprintf("http://127.0.0.1:%d/ready", shimPort), 200, 5*time.Second)
+	waitFor(t, fmt.Sprintf("http://127.0.0.1:%d/readyz", shimPort), 200, 5*time.Second)
 	cancel()
 	select {
 	case err := <-done:
@@ -207,7 +207,7 @@ func serveForTracing(t *testing.T, engine *httptest.Server) string {
 	})
 
 	base := fmt.Sprintf("http://127.0.0.1:%d", shimPort)
-	waitFor(t, base+"/ready", 200, 5*time.Second)
+	waitFor(t, base+"/readyz", 200, 5*time.Second)
 	return base
 }
 
@@ -228,7 +228,7 @@ func TestServeTracesRequestsAndSkipsProbes(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
-	for _, p := range []string{"/healthz", "/ready", "/metrics"} {
+	for _, p := range []string{"/livez", "/readyz", "/healthz", "/ready", "/metrics"} {
 		resp, err := http.Get(base + p)
 		if err != nil {
 			t.Fatalf("GET %s: %v", p, err)
@@ -269,6 +269,8 @@ func TestRouteTemplateBoundsCardinality(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
+		"/livez":                "/livez",
+		"/readyz":               "/readyz",
 		"/healthz":              "/healthz",
 		"/metrics":              "/metrics",
 		"/v1/models":            "/v1/models",
@@ -347,7 +349,7 @@ func TestShimPropagatesTraceContextUpstream(t *testing.T) {
 	// hop must land inside the trace its caller opened.
 	//
 	// Client spans without a parent are the engine health poll, which runs
-	// under the skipped /ready path and so has no caller to belong to.
+	// under the skipped /readyz path and so has no caller to belong to.
 	serverTraces := map[string]int{}
 	for _, sp := range rec.Ended() {
 		if sp.SpanKind() == trace.SpanKindServer {

@@ -61,6 +61,7 @@ func runServing(cmd string, rest []string, out, errw io.Writer) error {
 			Speculator: *speculator,
 			Log:        errw,
 		}
+		opts.Version, opts.Commit = buildIdentity()
 		// Test/debug hook: replace the engine command.
 		if o := os.Getenv("LLMOPS_ENGINE_CMD"); o != "" {
 			opts.EngineCmd = strings.Fields(o)

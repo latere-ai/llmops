@@ -47,6 +47,9 @@ type Options struct {
 	// Logger records the events of the serve lifecycle. Defaults to the
 	// slog default, which otel.Bootstrap has replaced in the CLI.
 	Logger *slog.Logger
+	// Version and Commit are the build identity the shim reports on
+	// /version. Empty is what a bare `go build` binary reports.
+	Version, Commit string
 }
 
 func (o *Options) defaults() {
@@ -125,16 +128,12 @@ func renderOverride(tmpl []string, model string, port int) []string {
 }
 
 // probeRequest reports whether a request is machinery rather than a
-// caller. The kubelet polls /healthz and /ready on every pod on a
+// caller. The kubelet polls /livez and /readyz on every pod on a
 // seconds-long period (deploy/*/lws.yaml), and `llmops ps` scrapes
 // /metrics on every invocation. A span each would outnumber the
 // inference spans the trace exists to show.
 func probeRequest(r *http.Request) bool {
-	switch r.URL.Path {
-	case "/healthz", "/ready", "/metrics":
-		return true
-	}
-	return false
+	return probePaths[r.URL.Path]
 }
 
 // Serve runs the full entrypoint: prepare weights, start the engine,
@@ -157,6 +156,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	shim.Speculator = spec.Name
 	shim.SystemPrompt = m.SystemPrompt
 	shim.HealthPath = os.Getenv("LLMOPS_ENGINE_HEALTH_PATH")
+	shim.Version, shim.Commit = opts.Version, opts.Commit
 
 	// After the shim's fields are set and before it serves: the metric
 	// callback reads them when a collection runs.
@@ -166,7 +166,7 @@ func Serve(ctx context.Context, m *manifest.Manifest, opts Options) error {
 	}
 	defer func() { _ = unregister() }()
 
-	// Expose /healthz (and a not-ready /ready) while weights load.
+	// Expose /livez (and a not-ready /readyz) while weights load.
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", fmt.Sprintf(":%d", opts.Port))
 	if err != nil {
 		return err

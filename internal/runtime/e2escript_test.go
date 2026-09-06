@@ -29,8 +29,9 @@ func TestE2EScriptCallsOnlyServedPaths(t *testing.T) {
 	}
 
 	// Paths served by the shim itself, beyond the caller dialects.
-	served := map[string]bool{
-		"/healthz": true, "/ready": true, "/metrics": true, "/v1/models": true,
+	served := map[string]bool{"/v1/models": true}
+	for p := range probePaths {
+		served[p] = true
 	}
 	for _, f := range frontends {
 		served[f.path] = true
