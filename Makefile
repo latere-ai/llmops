@@ -3,7 +3,7 @@
 
 GO ?= go
 # Image registry/namespace prefix — override for Nexus, ECR, Harbor, etc.
-# e.g. make release VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
+# e.g. make push-images VERSION=v0.1.0 REGISTRY=123456789.dkr.ecr.eu-central-1.amazonaws.com/latere
 REGISTRY ?= ghcr.io/latere-ai
 
 .PHONY: check build test cover test-hermetic test-race validate deps cgo-free spec-lint fmt fmt-check hooks vet e2e images dist clean lint-modernize lint-config lint lint-otel
@@ -125,10 +125,12 @@ images:
 	docker build -f Dockerfile.mirror -t $(REGISTRY)/llmops-mirror:dev .
 
 # Versioned build + push of all four images (see docs/deploy.md).
-# Usage: make release VERSION=v0.1.0 [REGISTRY=...]
+# Usage: make push-images VERSION=v0.1.0 [REGISTRY=...]
 # (requires docker login against $(REGISTRY))
-release:
-	@test -n "$(VERSION)" || { echo "usage: make release VERSION=vX.Y.Z [REGISTRY=...]"; exit 1; }
+# Named push-images rather than release: a release is a git tag with a
+# changelog section, and `release` is that command's name everywhere.
+push-images:
+	@test -n "$(VERSION)" || { echo "usage: make push-images VERSION=vX.Y.Z [REGISTRY=...]"; exit 1; }
 	docker build --platform linux/amd64 -f Dockerfile.sglang -t $(REGISTRY)/llmops-runtime-sglang:$(VERSION) .
 	docker build --platform linux/amd64 -f Dockerfile.sglang --build-arg SGLANG_IMAGE=lmsysorg/sglang:kimi-k3-c6ad1f26-20260729-amd64 -t $(REGISTRY)/llmops-runtime-sglang-k3:$(VERSION) .
 	docker build --platform linux/amd64 -f Dockerfile.vllm -t $(REGISTRY)/llmops-runtime-vllm:$(VERSION) .

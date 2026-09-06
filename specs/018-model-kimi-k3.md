@@ -124,7 +124,7 @@ as [[006-model-minimax-m3]] does.
 4. `Dockerfile.sglang` builds `llmops-runtime-sglang-k3` from the
    pinned CUDA 13 K3 image, selected with
    `--build-arg SGLANG_IMAGE=…`; the two images differ only in their
-   base, so they share one Dockerfile. `make release` publishes it
+   base, so they share one Dockerfile. `make push-images` publishes it
    alongside the others. The shared `llmops-runtime-sglang` image is **not** bumped
    to cu130 — that would force an r580+ driver on the h200/b200 pools
    for the sake of a model that does not run there.

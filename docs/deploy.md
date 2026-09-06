@@ -20,9 +20,9 @@ customization knob. Design rationale lives in [`specs/`](../specs/README.md).
 Four images, versioned together:
 
 ```sh
-make release VERSION=v0.1.0
+make push-images VERSION=v0.1.0
 # or into your own registry (ECR, Nexus, Harbor, ...):
-make release VERSION=v0.1.0 REGISTRY=nexus.example.com/latere
+make push-images VERSION=v0.1.0 REGISTRY=nexus.example.com/latere
 ```
 
 builds and pushes `linux/amd64` images (default registry
@@ -324,7 +324,7 @@ as OTLP instruments: `llmops.weights.load.duration`,
 | replicas | `spec.replicas` | whole serving groups (capacity planning, not HPA) |
 | group size | `leaderWorkerTemplate.size` | = `gpu.nodes`; >1 activates multi-node (needs RoCEv2/NCCL) and requires a `workerTemplate` (CI-checked: same image and GPU count as the leader, no probes — only rank 0 serves HTTP) |
 | GPU count/pool | `resources.limits."nvidia.com/gpu"`, `nodeSelector` | must match manifest `gpu` (CI-checked); pool label selects H200 / B200 / B300 |
-| image ref | container `image` | `<REGISTRY>/llmops-runtime-<engine>:<VERSION>` from `make release`; registry prefix is free, name must match the manifest runtime (CI-checked) |
+| image ref | container `image` | `<REGISTRY>/llmops-runtime-<engine>:<VERSION>` from `make push-images`; registry prefix is free, name must match the manifest runtime (CI-checked) |
 | NVMe cache | `volumes.cache.hostPath` | `/var/cache/llmops`; a prefetch DaemonSet warms it |
 | `/dev/shm` | `volumes.shm.sizeLimit` | ≥32Gi (vLLM requires it for DeepSeek-V4-class models) |
 | probe budget | `readinessProbe.failureThreshold` | cold start for the big models is minutes — size it accordingly |
