@@ -210,7 +210,7 @@ One GB10, 128 GB unified LPDDR5X, arm64 host, no cluster.
 | NVMe read | 4.9 GB/s |
 | Compute capability | sm_121, running sm_120 kernels by binary compatibility |
 | Weight verification | 54 GB in 39 s (~1.4 GB/s hashing) |
-| Engine start | 382 s for a 27B; ~10 min to `/ready` |
+| Engine start | 382 s for a 27B; ~10 min to `/readyz` |
 
 **Startup is the operational surprise.** systemd's 90 s default start
 timeout kills a large model mid-load and then keeps killing it, which
@@ -303,7 +303,7 @@ undersells the ceiling by roughly the acceptance rate.
 
 A manifest change means a restart, and a restart means reloading the
 weights. On this class that is **~10 minutes** for a 27B model: 39 s to
-verify 54 GB in place, then ~380 s of engine init before `/ready`.
+verify 54 GB in place, then ~380 s of engine init before `/readyz`.
 
 Batch manifest changes rather than iterating one flag at a time, and
 expect the endpoint to be gone for the duration — there is one GPU, so

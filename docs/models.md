@@ -43,7 +43,7 @@ one the engine speaks natively.
 | `/v1/chat/completions` | OpenAI Chat Completions | native for both shipped engines |
 | `/v1/messages` | Anthropic Messages | the path an unmodified Anthropic SDK requests |
 | `/v1/responses` | OpenAI Responses | |
-| `/healthz`, `/ready` | — | `/ready` waits for verified weights *and* engine health |
+| `/livez`, `/readyz`, `/version` | — | `/readyz` waits for verified weights *and* engine health and names the failing check; `/healthz` and `/ready` stay as aliases for one release |
 | `/metrics` | — | engine Prometheus output plus `llmops_*` |
 
 A caller dialect that matches the engine's own is proxied untouched. The

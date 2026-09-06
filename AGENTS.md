@@ -8,5 +8,5 @@
 - Specs live in specs/
 - Relevant latere projects and shared components (latere.ai/x/pkg/*) are in ../
 - This repo owns the open-weights inference layer end to end: frozen weights in S3, serving on bare-metal k8s GPU nodes, OpenAI-compatible endpoints registered behind the Lux model gateway.
-- Serving conventions follow the shared latere service contract: /healthz, /ready, /metrics, Docker + k8s packaging.
+- Serving conventions follow the shared latere service contract: /livez, /readyz, /version, /metrics (latere.ai/x/pkg/health), Docker + k8s packaging.
 - Every sentence is written for one reader (user, contributor, developer) and the register follows the reader; an error has one code, one fixed user sentence in `message`, and one developer detail in a separate field. The rule and the review checklist: https://github.com/latere-ai/pkg/blob/main/docs/writing/registers.md

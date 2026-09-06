@@ -80,11 +80,11 @@ serve() {
 }
 wait_ready() {
   for _ in $(seq 1 120); do
-    [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/ready")" = 200 ] && return 0
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/readyz")" = 200 ] && return 0
     kill -0 "$SERVE_PID" 2>/dev/null || { tail -20 "$LOG"; fail "serve exited early"; }
     sleep 2
   done
-  tail -20 "$LOG"; fail "/ready never turned 200"
+  tail -20 "$LOG"; fail "/readyz never turned 200"
 }
 
 say "runtime: serve (cold start; weights staged from MinIO)"

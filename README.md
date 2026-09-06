@@ -32,7 +32,7 @@ flowchart LR
 - **Weight freeze.** Upstream Hugging Face repos mutate and disappear.
   Every model is pinned to a revision and checksummed per file, then
   never re-downloaded from upstream — into an S3 prefix for a fleet, or
-  in place on a host's own disk. `/ready` does not flip until the
+  in place on a host's own disk. `/readyz` does not flip until the
   weights on disk match the manifest.
 - **Cost and control.** Serving on your own GPUs beats per-token router
   pricing at sustained load, and removes third-party rate limits,

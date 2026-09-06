@@ -87,7 +87,7 @@ kubectl -n llmops get pods -w
 kubectl -n llmops logs -f <pod>   # "weights: fetching ..." then "launching sglang"
 ```
 
-`/ready` returns 503 during load and 200 when the engine is up
+`/readyz` returns 503 during load and 200 when the engine is up
 (readiness probe allows a long cold start; warm restarts on the same
 node skip the download entirely). Verify the endpoint:
 
@@ -283,7 +283,7 @@ only carries model-specific flags.
 | Knob | Default | Purpose |
 |---|---|---|
 | `--manifest` | `/etc/llmops/model.yaml` | manifest path (mounted ConfigMap) |
-| `--port` | 8000 | shim/service port (`/healthz`, `/ready`, `/metrics`, and all three caller surfaces: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`) |
+| `--port` | 8000 | shim/service port (`/livez`, `/readyz`, `/version`, `/metrics`, and all three caller surfaces: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`) |
 | `--engine-port` | 30000 | engine's internal port |
 | `--cache-root` | `/cache` | NVMe cache mount; keyed by repo+revision, flock-shared across pods on a node |
 | `--speculator` | the manifest's `default_speculator` | which draft head to serve with; `none` disables speculation. Resolved before any weights are touched, and reported on every response as `X-LLMOps-Speculator` |
@@ -339,7 +339,7 @@ as OTLP instruments: `llmops.weights.load.duration`,
 
 ## Troubleshooting
 
-- **`/ready` stuck at 503** — check pod logs: still `weights: fetching`
+- **`/readyz` stuck at 503** — its body names the check; check pod logs: still `weights: fetching`
   (normal on cold start), engine crash (log tail shows the engine's
   stderr), or a hash mismatch (store corruption → run `llmops verify`).
 - **404 from `/v1/chat/completions`** — model id in the request must be
