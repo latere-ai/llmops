@@ -158,7 +158,7 @@ func validateOne(m *manifest.Manifest, path string) error {
 	// count as the leader's — an unchecked worker is a rank that either
 	// never joins the group or joins with the wrong weights
 	// (specs/018 AC3). Probes are leader-only: only rank 0 serves HTTP,
-	// so the worker has no /ready to answer.
+	// so the worker has no /readyz to answer.
 	if m.GPU.Nodes > 1 {
 		if dig(lws, "spec", "leaderWorkerTemplate", "workerTemplate") == nil {
 			return fmt.Errorf("gpu.nodes %d requires a workerTemplate", m.GPU.Nodes)
@@ -205,11 +205,11 @@ func validateContainer(m *manifest.Manifest, lws map[string]any, template string
 	if !probes {
 		return nil
 	}
-	if p, _ := dig(c, "readinessProbe", "httpGet", "path").(string); p != "/ready" {
-		return fmt.Errorf("%s readinessProbe path %q, want /ready", template, p)
+	if p, _ := dig(c, "readinessProbe", "httpGet", "path").(string); p != "/readyz" {
+		return fmt.Errorf("%s readinessProbe path %q, want /readyz", template, p)
 	}
-	if p, _ := dig(c, "livenessProbe", "httpGet", "path").(string); p != "/healthz" {
-		return fmt.Errorf("%s livenessProbe path %q, want /healthz", template, p)
+	if p, _ := dig(c, "livenessProbe", "httpGet", "path").(string); p != "/livez" {
+		return fmt.Errorf("%s livenessProbe path %q, want /livez", template, p)
 	}
 	return nil
 }

@@ -59,9 +59,9 @@ spec:
               limits:
                 nvidia.com/gpu: "%d"
             readinessProbe:
-              httpGet: {path: /ready, port: 8000}
+              httpGet: {path: /readyz, port: 8000}
             livenessProbe:
-              httpGet: {path: /healthz, port: 8000}
+              httpGet: {path: /livez, port: 8000}
 `, model, image, gpus)
 	if err := os.WriteFile(filepath.Join(dir, "lws.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)

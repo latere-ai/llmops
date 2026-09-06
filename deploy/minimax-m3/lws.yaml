@@ -27,11 +27,11 @@ spec:
               - containerPort: 8000
                 name: http
             readinessProbe:
-              httpGet: { path: /ready, port: 8000 }
+              httpGet: { path: /readyz, port: 8000 }
               periodSeconds: 10
               failureThreshold: 180 # cold start can be many minutes
             livenessProbe:
-              httpGet: { path: /healthz, port: 8000 }
+              httpGet: { path: /livez, port: 8000 }
               periodSeconds: 30
             resources:
               limits:

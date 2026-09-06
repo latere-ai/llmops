@@ -209,9 +209,9 @@ spec:
               limits:
                 nvidia.com/gpu: "` + gpus + `"
             readinessProbe:
-              httpGet: {path: /ready, port: 8000}
+              httpGet: {path: /readyz, port: 8000}
             livenessProbe:
-              httpGet: {path: /healthz, port: 8000}
+              httpGet: {path: /livez, port: 8000}
 `
 }
 
@@ -246,12 +246,12 @@ func TestValidateFailures(t *testing.T) {
 		},
 		{
 			"wrong ready path",
-			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "/ready", "/readyz", 1),
+			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "/readyz", "/ready", 1),
 			"readinessProbe",
 		},
 		{
 			"wrong live path",
-			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "/healthz", "/live", 1),
+			strings.Replace(goodLWS("tiny", "ghcr.io/latere-ai/llmops-runtime-sglang:v1", "8"), "/livez", "/healthz", 1),
 			"livenessProbe",
 		},
 		{
@@ -313,9 +313,9 @@ spec:
               limits:
                 nvidia.com/gpu: "8"
             readinessProbe:
-              httpGet: {path: /ready, port: 8000}
+              httpGet: {path: /readyz, port: 8000}
             livenessProbe:
-              httpGet: {path: /healthz, port: 8000}
+              httpGet: {path: /livez, port: 8000}
     workerTemplate:
       spec:
         containers:

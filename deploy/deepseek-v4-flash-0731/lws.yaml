@@ -27,14 +27,14 @@ spec:
               - containerPort: 8000
                 name: http
             readinessProbe:
-              httpGet: { path: /ready, port: 8000 }
+              httpGet: { path: /readyz, port: 8000 }
               periodSeconds: 10
               # Cold start adds 10-15 min on top of the weight fetch
               # while FlashInfer autotunes and SGLang captures the draft
               # and verify CUDA graphs; later starts reuse the cache.
               failureThreshold: 240
             livenessProbe:
-              httpGet: { path: /healthz, port: 8000 }
+              httpGet: { path: /livez, port: 8000 }
               periodSeconds: 30
             resources:
               limits:

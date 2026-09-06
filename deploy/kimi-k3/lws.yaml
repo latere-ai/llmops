@@ -36,14 +36,14 @@ spec:
               - containerPort: 8000
                 name: http
             readinessProbe:
-              httpGet: { path: /ready, port: 8000 }
+              httpGet: { path: /readyz, port: 8000 }
               periodSeconds: 10
               # 1561 GB of weights to stage, then vision-tower and decode
               # graph capture on top. Cold start is the better part of an
               # hour; warm restarts skip the fetch entirely.
               failureThreshold: 360
             livenessProbe:
-              httpGet: { path: /healthz, port: 8000 }
+              httpGet: { path: /livez, port: 8000 }
               periodSeconds: 30
             resources:
               limits:
